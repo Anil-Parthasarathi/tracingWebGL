@@ -9,7 +9,7 @@ const vertexShaderCode = `
 
 const fragmentShaderCode = `
 
-#define NUMITEMS 2
+#define NUMITEMS 3
 #define NOL0 5
 #define NOL1 3
 
@@ -40,6 +40,15 @@ struct Item {
     vec3 rotation;
     float scale; //for the sake of simplicity lets just say that this would be the radius for spheres and planes can be assumed to always have the same length and width (given by this value)
     int property; //we can use this to determine whether the item is reflective, refractive, diffuse, etc.
+
+    /*
+
+    property 0: basic diffuse
+    property 1: reflective
+
+    (^keep adding to here so we can keep track)
+
+    */
 };
 
 struct Ray {
@@ -114,7 +123,7 @@ Hit checkSphereCollision(Item item, Ray ray, float tMin){
             h.t = t;
             h.position = hitPosition;
             h.normal = hitNormal;
-            h.sceneIndex = -1;
+            h.sceneIndex = -1; //to be defined later
 
         }
     }
@@ -129,7 +138,20 @@ Hit checkPlaneCollision(Item item, Ray ray, float tMin){
     h.normal = vec3(-1.0);
     h.sceneIndex = -1;
 
-    //TODO: write this function!
+    vec3 N_PL = vec3(0.0,1.0,0.0); //assuming upward facing plane for now
+
+    if(dot(N_PL, ray.direction) < 0.0){ //We hit plane
+        float t = -dot(N_PL, (ray.origin - item.position)) / (dot(N_PL, ray.direction));
+
+        if(t < tMin)
+        {
+            h.t = t;
+            h.position = ray.origin + t * ray.direction;
+            h.normal = N_PL; 
+            h.sceneIndex = -1; //to be defined later
+
+        }
+    }
     
     return h;
 }
@@ -182,6 +204,8 @@ void main() {
     //an array to hold all the items in the scene
     Item scene[NUMITEMS];
 
+    float mint0 = 10000.0;
+
     //construct the first item, sphere0
     Item sphere0;
 
@@ -197,11 +221,11 @@ void main() {
     sphere0.material.specular = highlight0;
     sphere0.material.ks = 0.9;
 
-    float mint0 = 10000.0;
-
     sphere0.position = vec3(iMouse.x, iMouse.y, -mint0 / 6.0); //set sphere position
     sphere0.rotation = (vec3(0, 0, 0));
     sphere0.scale = iResolution.y/1.50;  //set sphere radius
+    
+    sphere0.property = 0; //basic diffuse
 
     //add the sphere to the scene list
     scene[0] = sphere0;
@@ -211,9 +235,33 @@ void main() {
     Item sphere1;
 
     sphere1 = sphere0;
-    sphere1.position = vec3( 1000.0, 0.0, -mint0 / 5.0);
+    sphere1.material.diffuse = vec4(201.0/255.0, 183.0/255.0,169.0/255.0,1.0);
+    sphere1.position = vec3( 1000.0, 0.0, -mint0 / 4.5);
+    sphere1.property = 1;
 
     scene[1] = sphere1;
+
+    //add the plane
+
+    vec3 P_PL = vec3(0.0, -200.0, 0.0); //plane position
+
+    Item plane0;
+
+    plane0.type = 1;
+
+    plane0.material.ambient = ambient0;
+    plane0.material.diffuse = dif0;
+    plane0.material.specular = highlight0;
+    plane0.material.ks = 0.9;
+
+    plane0.position = P_PL; //set plane position
+    plane0.rotation = (vec3(0, 0, 0));
+    plane0.scale = iResolution.y/1.50;  //set plane radius
+    
+    plane0.property = 0; //basic diffuse
+
+    //add the sphere to the scene list
+    scene[2] = plane0;
 
     //set up orientations
 
@@ -235,8 +283,6 @@ void main() {
     vec3 cameraPos = vec3(iResolution.x / 2.0, iResolution.y / 2.0, iResolution.x); // eye position
     vec3 pixelPos =  vec3(gl_FragCoord.x, gl_FragCoord.y, 0.0);                                                             
     vec3 lightPos = vec3(iMouse.x, iMouse.y, 1.0 * iResolution.x / 100.0);
-
-    vec3 P_PL = vec3(0.0, iResolution.y / 4.0, 0.0); 
     
     vec3 rayDirection = normalize(pixelPos - cameraPos);
     
@@ -278,8 +324,23 @@ void main() {
 
     if (sceneHit.sceneIndex != -1){
 
+        Item it;
+
+        //its a pain but we might have to keep adding to here each time a new item is added, need to research this more
+
+        if (sceneHit.sceneIndex == 0){
+            it = scene[0];
+        }
+        else if (sceneHit.sceneIndex == 1){
+            it = scene[1];
+        }
+        else if (sceneHit.sceneIndex == 2){
+            it = scene[2];
+        }
+        
+
         //initialize color to ambient
-        col = scene[0].material.ambient;
+        col = it.material.ambient;
 
         //check if point is in shadow
 
@@ -294,18 +355,9 @@ void main() {
         //if these conditions arent true then the point is not in shadow and we should color it
         if (!(shadowHit.sceneIndex != -1 && shadowHit.sceneIndex != sceneHit.sceneIndex)){
 
-            vec4 spec = scene[0].material.specular;
-            vec4 dif = scene[0].material.diffuse;
-            float exp = scene[0].material.ks;
-
-            /*vec3 eye = normalize(cameraPos.rgb - sceneHit.position.rgb);
-
-            vec3 h = normalize(shadowRay.direction + eye);
-
-            vec3 cs = spec.rgb * pow(max(0.0, dot(h, sceneHit.normal.rgb)), exp);
-            vec3 cd = dif.rgb * max(0.0, dot(shadowRay.direction.rgb, sceneHit.normal));
-
-            col += vec4(cs + cd, 0.0);*/
+            vec4 spec = it.material.specular;
+            vec4 dif = it.material.diffuse;
+            float exp = it.material.ks;
 
             illum = dot(sceneHit.normal, shadowRay.direction);
             if (illum < 0.0) illum = 0.0;
