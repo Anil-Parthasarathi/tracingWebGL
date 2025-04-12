@@ -9,7 +9,7 @@ const vertexShaderCode = `
 
 const fragmentShaderCode = `
 
-#define NUMITEMS 1
+#define NUMITEMS 2
 
 precision mediump float;
 
@@ -202,6 +202,15 @@ void main() {
     //add the sphere to the scene list
     scene[0] = sphere0;
 
+    //add second sphere
+
+    Item sphere1;
+
+    sphere1 = sphere0;
+    sphere1.position = vec3(iMouse.x + 900.0, iMouse.y, -mint0 / 20.0);
+
+    scene[1] = sphere1;
+
     //set up orientations
 
     vec3 V2 = vec3(0.0,0.0,0.1);
@@ -290,8 +299,8 @@ void main() {
         ambient = BG / 3.0; 
         diffuse = BG;
         K_s = 0.90;
-        ambient = (1.0 - K_s) * ambient0 + K_s * ambient; //webgl wont let me index with scene index here so we'll need to do a if else branch most likely
-        diffuse = (1.0 - K_s) * dif0 + K_s * diffuse;    
+        ambient = (1.0 - K_s) * scene[0].material.ambient + K_s * ambient; //webgl wont let me index with scene index here so we'll need to do a if else branch most likely
+        diffuse = (1.0 - K_s) * scene[0].material.diffuse + K_s * diffuse;    
         specular = highlight0;
     
     }
@@ -559,7 +568,31 @@ async function textureLoader(url) {
     });
 }
 
-function render(){
+let start = 0.0;
+
+let oldTime = 0.0;
+
+const fpsLabel = document.querySelector("#fps");
+
+function render(curTime){
+
+    //compute the current fps and display it on the page in order to be able to understand how the program is currently performing
+
+    curTime *= 0.001;
+    const timeChange = curTime - oldTime;
+
+    oldTime = curTime;
+
+    //the fps was changing so quickly that it was hard to read so I made it so that it only updates after certain periods of time
+    if (curTime - start > 0.1){
+
+        start = curTime;
+
+        const fps = 1.0 / timeChange;
+
+        fpsLabel.textContent = Math.round(fps);
+    }
+
     glContext.clearColor(0.0, 0.0, 0.0, 1.0); //set background color to black as the default
 
     glContext.clear(glContext.COLOR_BUFFER_BIT);
