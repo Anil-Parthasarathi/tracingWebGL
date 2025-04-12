@@ -10,6 +10,8 @@ const vertexShaderCode = `
 const fragmentShaderCode = `
 
 #define NUMITEMS 2
+#define NOL0 5
+#define NOL1 3
 
 precision mediump float;
 
@@ -26,6 +28,7 @@ struct Material {
     vec4 ambient;
     vec4 diffuse;
     vec4 specular;
+    float ks;
 
 };
 
@@ -36,7 +39,7 @@ struct Item {
     vec3 position;
     vec3 rotation;
     float scale; //for the sake of simplicity lets just say that this would be the radius for spheres and planes can be assumed to always have the same length and width (given by this value)
-
+    int property; //we can use this to determine whether the item is reflective, refractive, diffuse, etc.
 };
 
 struct Ray {
@@ -101,12 +104,12 @@ Hit checkSphereCollision(Item item, Ray ray, float tMin){
 
         float t = B - sqrt(delta);
 
-        //if t is not less than tMin that means there is a closer ray collision that has already been so theres no need to keep going here
+        //if t is not less than tMin that means there is a closer ray collision that has already been found so there is no need to keep going here
         if (t < tMin){
 
             vec3 hitPosition = ray.origin + t * ray.direction; 
 
-            vec3 hitNormal = (hitPosition - item.position) / item.scale;
+            vec3 hitNormal = normalize((hitPosition - item.position) / item.scale);
 
             h.t = t;
             h.position = hitPosition;
@@ -192,10 +195,11 @@ void main() {
     sphere0.material.ambient = ambient0;
     sphere0.material.diffuse = dif0;
     sphere0.material.specular = highlight0;
+    sphere0.material.ks = 0.9;
 
     float mint0 = 10000.0;
 
-    sphere0.position = vec3(iMouse.x, iMouse.y, -mint0 / 20.0); //set sphere position
+    sphere0.position = vec3(iMouse.x, iMouse.y, -mint0 / 6.0); //set sphere position
     sphere0.rotation = (vec3(0, 0, 0));
     sphere0.scale = iResolution.y/1.50;  //set sphere radius
 
@@ -207,7 +211,7 @@ void main() {
     Item sphere1;
 
     sphere1 = sphere0;
-    sphere1.position = vec3(iMouse.x + 900.0, iMouse.y, -mint0 / 20.0);
+    sphere1.position = vec3( 1000.0, 0.0, -mint0 / 5.0);
 
     scene[1] = sphere1;
 
@@ -226,16 +230,11 @@ void main() {
     float s0 = iResolution.x;
     float s1 = iResolution.x;
 
-    int noL0 = 5;
-    int noL1 = 3;
-
-    vec3 N; //normals
-
     //figure out camera position, pixel position, and light position
 
     vec3 cameraPos = vec3(iResolution.x / 2.0, iResolution.y / 2.0, iResolution.x); // eye position
     vec3 pixelPos =  vec3(gl_FragCoord.x, gl_FragCoord.y, 0.0);                                                             
-    vec3 lightPos = vec3(iMouse.x, iMouse.y, 1.0 * iResolution.x / 1.0);
+    vec3 lightPos = vec3(iMouse.x, iMouse.y, 1.0 * iResolution.x / 100.0);
 
     vec3 P_PL = vec3(0.0, iResolution.y / 4.0, 0.0); 
     
@@ -244,7 +243,6 @@ void main() {
     float t;
 
     float mint = mint0;
-    vec3 P_H, P_H2; 
     float illum; 
     float spec;
     float K_s;
@@ -254,8 +252,8 @@ void main() {
     vec3 P_BG = vec3(0.0,0.0,-mint0/30.0);
     vec3 N_BG = vec3(0.0,0.0,1.0);
     t = -dot(N_BG,(cameraPos-P_BG))/(dot(N_BG, rayDirection));
-    N = N_BG; 
-    P_H = cameraPos + t * rayDirection;
+    vec3 N = N_BG; 
+    vec3 P_H = cameraPos + t * rayDirection;
     mint = t;
 
     uv_tex.x = dot(N0,(P_H-P_BG))/s0; 
@@ -275,100 +273,51 @@ void main() {
     ray.origin = cameraPos;
     ray.direction = rayDirection;
 
+    //initial ray to find hit
     Hit sceneHit = checkSceneCollision(scene, ray);
 
     if (sceneHit.sceneIndex != -1){
 
-        float C = -dot(ray.direction, sceneHit.normal); 
-        
-        vec3 T_PE = (1.0 - weight) * ray.direction + weight * (-1.0 * sceneHit.normal); 
+        //initialize color to ambient
+        col = scene[0].material.ambient;
 
-        T_PE = T_PE / length(T_PE);
+        //check if point is in shadow
 
-        if (keyPress == 1){
-            T_PE = 1.0 / ior * (-1.0 * ray.direction + (C - sqrt(C*C - 1.0 + ior*ior)) * sceneHit.normal);
-            
-        }
+        //first generate a new ray that points toward light source
 
-        t = -dot(N_BG, (sceneHit.position - P_BG)) / (dot(N_BG, T_PE));
-        P_H2 = sceneHit.position + t * T_PE;   
-        uv_tex.x = dot(N0,(P_H2 - P_PL)) / s0; 
-        uv_tex.y = dot(N1,(P_H2 - P_PL)) / s1;
-        uv_tex = p2(uv_tex);
-        BG = texture2D(iChannel0, uv_tex);
-        ambient = BG / 3.0; 
-        diffuse = BG;
-        K_s = 0.90;
-        ambient = (1.0 - K_s) * scene[0].material.ambient + K_s * ambient; //webgl wont let me index with scene index here so we'll need to do a if else branch most likely
-        diffuse = (1.0 - K_s) * scene[0].material.diffuse + K_s * diffuse;    
-        specular = highlight0;
-    
+        Ray shadowRay;
+        shadowRay.origin = sceneHit.position;
+        shadowRay.direction = normalize(lightPos - sceneHit.position);
+
+        Hit shadowHit = checkSceneCollision(scene, shadowRay);
+
+        //if these conditions arent true then the point is not in shadow and we should color it
+        if (!(shadowHit.sceneIndex != -1 && shadowHit.sceneIndex != sceneHit.sceneIndex)){
+
+            vec4 spec = scene[0].material.specular;
+            vec4 dif = scene[0].material.diffuse;
+            float exp = scene[0].material.ks;
+
+            /*vec3 eye = normalize(cameraPos.rgb - sceneHit.position.rgb);
+
+            vec3 h = normalize(shadowRay.direction + eye);
+
+            vec3 cs = spec.rgb * pow(max(0.0, dot(h, sceneHit.normal.rgb)), exp);
+            vec3 cd = dif.rgb * max(0.0, dot(shadowRay.direction.rgb, sceneHit.normal));
+
+            col += vec4(cs + cd, 0.0);*/
+
+            illum = dot(sceneHit.normal, shadowRay.direction);
+            if (illum < 0.0) illum = 0.0;
+            col = col * (1.0 - illum) + dif * illum;
+        }  
+
     }
     else{
         sceneHit.normal = N;
         sceneHit.position = P_H;
     }
-
-    float totalillum = 0.0; 
-    float totalspec = 0.0;
-    float rand = random(uv) - 0.5;
-
-    float incU = 1.0 / float(noL0);
-    float incV = 1.0 / float(noL1);
-
-    float ui = 0.0;
-    float vi = 0.0;
-
-    vec3 L;
-
-    //had to hardcode the values of noL0 and noL1 here because it was giving me errors for using nonconstant values in the for loop conditions
-    //more proper way would be to take in these values as input to the shader I suppose
-
-    for (int i = 0; i < 5; i++)
-    {
-        for (int j = 0; j < 3; j++) 
-        {
-            vec3 P_Lu = cameraPos + s0 * N0 * (ui + rand / float(noL0)) + s1 * N1 * (vi + (rand) / float(noL1)); 
-
-            L = P_Lu - sceneHit.position; 
-            float length_of_L = length(L);
-            L = normalize(L);   
-            
-            illum = dot(sceneHit.normal, L);
-
-            if(illum<0.0) illum = 0.0; 
-            vec3 R_PE = rayDirection - 2.0 * dot(rayDirection, sceneHit.normal) * sceneHit.normal; 
-            spec = dot(R_PE, L);
-            if(spec<0.0) spec = 0.0; 
-            spec = pow(spec, 50.0);
-            float shadow = 1.0;
-
-            float B = dot(L, sphere0.position - sceneHit.position);
-            float C = dot(sceneHit.position - sphere0.position, sceneHit.position - sphere0.position) - sphere0.scale*sphere0.scale; 
-            float delta = B*B-C; 
-            if(delta > 0.0 && B> 0.0) shadow=0.1;
-
-            if(shadow>1.0) shadow=1.0;  
-
-            totalillum=totalillum+shadow*illum * 0.6 / float(noL0*noL1);
-            totalspec=totalspec+shadow*spec * 0.4 / float(noL0*noL1);
-
-            vi += incV;
-        }
-
-        ui += incU;
-
-    }
-    
-    illum = totalillum;
-    spec = totalspec;
-    
-    //Reduce Diffuse Light Intensity
-    col = ambient*(illum * 0.1) + diffuse*(1.0 - illum * 0.1);                                    // 0< .....<1  (0.5)
-
-    //Reduce Specular Highlights
-    col = specular * K_s * spec * 0.1 + col * (1.0 - K_s * spec * 0.1);                      // 0< .....<1  (0.3)
-       
+   
     gl_FragColor = vec4(col);    // Output to screen                                                    
 }
 `;
