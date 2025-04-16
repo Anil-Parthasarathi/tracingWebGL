@@ -175,7 +175,6 @@ Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray){
             itemHit = checkSphereCollision(scene[i], ray, tMin);
         }
         else if (scene[i].type == 1){
-            //TODO: still need to implement this function
             itemHit = checkPlaneCollision(scene[i], ray, tMin);
         }
 
@@ -286,8 +285,6 @@ void main() {
     
     vec3 rayDirection = normalize(pixelPos - cameraPos);
     
-    float t;
-
     float mint = mint0;
     float illum; 
     float spec;
@@ -297,7 +294,7 @@ void main() {
 
     vec3 P_BG = vec3(0.0,0.0,-mint0/30.0);
     vec3 N_BG = vec3(0.0,0.0,1.0);
-    t = -dot(N_BG,(cameraPos-P_BG))/(dot(N_BG, rayDirection));
+    float t = -dot(N_BG,(cameraPos-P_BG))/(dot(N_BG, rayDirection));
     vec3 N = N_BG; 
     vec3 P_H = cameraPos + t * rayDirection;
     mint = t;
@@ -337,7 +334,6 @@ void main() {
         else if (sceneHit.sceneIndex == 2){
             it = scene[2];
         }
-        
 
         //initialize color to ambient
         col = it.material.ambient;
