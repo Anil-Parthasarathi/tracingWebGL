@@ -10,8 +10,8 @@ const vertexShaderCode = `
 const fragmentShaderCode = `
 
 #define NUMITEMS 3
-#define NOL0 5
-#define NOL1 3
+#define NOL0 7
+#define NOL1 7
 
 precision mediump float;
 
@@ -79,6 +79,14 @@ vec2  p2(vec2 st)
 
 float random (vec2 st) {
     return fract(sin(dot(st.xy,vec2(12.9898,78.233))) * 43758.5453123);
+}
+
+float random2 (vec2 st) {
+    return fract(sin(dot(st.xy,vec2(9790.2248,79.864))) * 635357.4893123);
+}
+
+float random3 (vec2 st) {
+    return fract(sin(dot(st.xy,vec2(57.0932,757.298))) * 756489.9039201);
 }
 
 float smooth_step( float min, float max, float x )
@@ -192,6 +200,23 @@ Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray){
     return h;
 }
 
+Item sceneItemReference(int sceneIndex, Item scene[NUMITEMS]){
+
+    Item it;
+
+    if (sceneIndex == 0){
+        it = scene[0];
+    }
+    else if (sceneIndex == 1){
+        it = scene[1];
+    }
+    else if (sceneIndex == 2){
+        it = scene[2];
+    }
+
+    return it;
+}
+
 void main() {
 
     vec4 ambient, diffuse, specular;
@@ -212,7 +237,7 @@ void main() {
 
     //set up material attributes for sphere0
     vec4 ambient0 = vec4(134.0/255.0 , 112.0/255.0, 108.0/255.0, 1.0); 
-    vec4 dif0 = vec4(201.0/255.0, 183.0/255.0,169.0/255.0,1.0); 
+    vec4 dif0 = vec4(0.0/255.0, 0.0/255.0,255.0/255.0,1.0); 
     vec4 highlight0 = vec4(225.0/255.0, 220.0/255.0,200.0/255.0,1.0); 
 
     sphere0.material.ambient = ambient0;
@@ -234,7 +259,7 @@ void main() {
     Item sphere1;
 
     sphere1 = sphere0;
-    sphere1.material.diffuse = vec4(201.0/255.0, 183.0/255.0,169.0/255.0,1.0);
+    sphere1.material.diffuse = vec4(0.0/255.0, 255.0/255.0,0.0/255.0,1.0);
     sphere1.position = vec3( 1000.0, 0.0, -mint0 / 4.5);
     sphere1.property = 1;
 
@@ -249,7 +274,7 @@ void main() {
     plane0.type = 1;
 
     plane0.material.ambient = ambient0;
-    plane0.material.diffuse = dif0;
+    plane0.material.diffuse = vec4(250.0/255.0, 255.0/255.0,255.0/255.0,1.0);;
     plane0.material.specular = highlight0;
     plane0.material.ks = 0.9;
 
@@ -280,13 +305,12 @@ void main() {
     //figure out camera position, pixel position, and light position
 
     vec3 cameraPos = vec3(iResolution.x / 2.0, iResolution.y / 2.0, iResolution.x); // eye position
-    vec3 pixelPos =  vec3(gl_FragCoord.x, gl_FragCoord.y, 0.0);                                                             
-    vec3 lightPos = vec3(iMouse.x, iMouse.y, 1.0 * iResolution.x / 100.0);
+    vec3 pixelPos =  vec3(gl_FragCoord.x, gl_FragCoord.y, -3.0);                                                             
+    vec3 lightPos = vec3(0.0, 1000.0, 0.0);
     
     vec3 rayDirection = normalize(pixelPos - cameraPos);
     
     float mint = mint0;
-    float illum; 
     float spec;
     float K_s;
     float weight = 0.9;
@@ -321,19 +345,7 @@ void main() {
 
     if (sceneHit.sceneIndex != -1){
 
-        Item it;
-
-        //its a pain but we might have to keep adding to here each time a new item is added, need to research this more
-
-        if (sceneHit.sceneIndex == 0){
-            it = scene[0];
-        }
-        else if (sceneHit.sceneIndex == 1){
-            it = scene[1];
-        }
-        else if (sceneHit.sceneIndex == 2){
-            it = scene[2];
-        }
+        Item it = sceneItemReference(sceneHit.sceneIndex, scene);
 
         //initialize color to ambient
         col = it.material.ambient;
@@ -343,7 +355,7 @@ void main() {
         //first generate a new ray that points toward light source
 
         Ray shadowRay;
-        shadowRay.origin = sceneHit.position;
+        shadowRay.origin = sceneHit.position + sceneHit.normal * 50.00;
         shadowRay.direction = normalize(lightPos - sceneHit.position);
 
         Hit shadowHit = checkSceneCollision(scene, shadowRay);
@@ -355,20 +367,112 @@ void main() {
             vec4 dif = it.material.diffuse;
             float exp = it.material.ks;
 
-            illum = dot(sceneHit.normal, shadowRay.direction);
-            if (illum < 0.0) illum = 0.0;
-            col = col * (1.0 - illum) + dif * illum;
+            //shoot out final gathering rays
+
+            vec4 finalGatherColorBleed = vec4(0.0, 0.0, 0.0, 0.0);
+            float finalGatherAmbientOcclusion = 0.0;
+            vec4 finalGatherEnvironment = vec4(0.0, 0.0, 0.0, 0.0);
+
+            float weights = 0.0;
+
+            for (int i = 0; i < NOL0; i++){
+                for (int j = 0; j < NOL1; j++){
+                    Ray finalGatherRay;
+                    finalGatherRay.origin = sceneHit.position + sceneHit.normal * 50.000;
+
+                    //compute direction
+
+                    //lazy implementation #TODO: try to do the better way as well
+
+                    float rand1 = random(uv + float(i * NOL0 + j));
+                    float rand2 = random2(uv + float(i * NOL0 + j));
+                    float rand3 = random3(uv + float(i * NOL0 + j));
+
+                    vec3 finalDirection = normalize(sceneHit.normal + vec3(rand1, rand2, rand3));
+
+                    finalGatherRay.direction = finalDirection; //TODO: send out in random directions around a hemisphere
+
+                    Hit finalGatherHit = checkSceneCollision(scene, finalGatherRay);
+
+                    float gatherWeight = dot(sceneHit.normal, finalGatherRay.direction);
+
+                    if (finalGatherHit.sceneIndex >= 0 && finalGatherHit.sceneIndex != sceneHit.sceneIndex){
+                        Item finalIt = sceneItemReference(finalGatherHit.sceneIndex, scene);
+
+                        //first check if its in shadow
+
+                        Ray finalGatherColorBleedShadowRay;
+                        finalGatherColorBleedShadowRay.origin = finalGatherHit.position + finalGatherHit.normal * 50.0;
+                        finalGatherColorBleedShadowRay.direction = normalize(vec3(lightPos - finalGatherHit.position));
+
+                        Hit finalGatherColorBleedShadowHit = checkSceneCollision(scene, finalGatherColorBleedShadowRay);
+
+                        if (finalGatherColorBleedShadowHit.sceneIndex >= 0 && finalGatherColorBleedShadowHit.sceneIndex != finalGatherHit.sceneIndex){
+                            float illum = dot(finalGatherHit.normal, finalGatherColorBleedShadowRay.direction);
+                            if (illum < 0.0) illum = 0.0;
+                            vec4 otherCol = finalIt.material.ambient * (1.0 - illum) + finalIt.material.diffuse * illum;
+
+                            finalGatherColorBleed += otherCol * gatherWeight;
+                        }
+                        else{
+                            finalGatherColorBleed += finalIt.material.ambient * gatherWeight;
+                        }                        
+
+                        //choose black for ambient occlusion so dont add any color (set black)
+                        //choose black for environment as well
+                    }
+                    else{
+
+                        vec2 environmentUV;
+
+                        environmentUV.x = atan(finalDirection.z, finalDirection.x) / (2.0 * pi) + 0.5; 
+
+                        environmentUV.y = acos(finalDirection.y) / pi; 
+
+                        vec4 environmentColor = texture2D(iChannel0, environmentUV);
+                    
+
+                        finalGatherColorBleed += environmentColor * gatherWeight;
+                        finalGatherAmbientOcclusion += gatherWeight;
+                        finalGatherEnvironment += environmentColor * gatherWeight;
+                        
+                    }
+
+                    weights += gatherWeight;
+                }
+            }
+
+            float directIllum = dot(sceneHit.normal, shadowRay.direction);
+            if (directIllum < 0.0) directIllum = 0.0;
+            vec4 directLightingColor = it.material.ambient * (1.0 - directIllum) + it.material.diffuse * directIllum;
+
+            finalGatherColorBleed = finalGatherColorBleed / weights;
+            finalGatherAmbientOcclusion = finalGatherAmbientOcclusion / weights;
+            finalGatherEnvironment = finalGatherEnvironment / weights;
+
+            col = finalGatherColorBleed * 0.1 + directLightingColor * 0.75 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.1 + finalGatherEnvironment * 0.05;
+
+            col = clamp(col, 0.0, 1.0);
+
+            col.a = 1.0;
+            //col = vec4(0.0, 1.0, 0.0, 1.0)
         }  
 
     }
     else{
-        sceneHit.normal = N;
-        sceneHit.position = P_H;
+
+        vec2 environmentUV;
+
+        environmentUV.x = atan(ray.direction.z, ray.direction.x) / (2.0 * pi) + 0.5; 
+
+        environmentUV.y = acos(ray.direction.y) / pi; 
+
+        col = texture2D(iChannel0, environmentUV);
     }
    
     gl_FragColor = vec4(col);    // Output to screen                                                    
 }
-`;
+`
 
 var canv;
 var glContext;  //Loads WebGL context 
@@ -448,7 +552,7 @@ async function main() {
     glContext.pixelStorei(glContext.UNPACK_FLIP_Y_WEBGL, true);
 
     const texturePaths = [
-        'Assets/Images/highbuilding.jpg',                              
+        'Assets/Images/ocean.jpg',                              
     ];
 
     const textures = await Promise.all(texturePaths.map(textureLoader));
