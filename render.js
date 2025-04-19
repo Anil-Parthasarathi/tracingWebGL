@@ -30,6 +30,8 @@ struct Material {
     vec4 specular;
     float ks;
 
+    float reflectivity;  // Add reflectivity for the reflective effect                                                 //add here
+
 };
 
 struct Item {
@@ -67,6 +69,10 @@ struct Hit {
     int sceneIndex;
 
 };
+
+vec3 reflectRay(vec3 incident, vec3 normal) {
+    return incident - 2.0 * dot(incident, normal) * normal;
+}
 
 vec2  p2(vec2 st)   
 {
@@ -244,6 +250,7 @@ void main() {
     sphere0.material.diffuse = dif0;
     sphere0.material.specular = highlight0;
     sphere0.material.ks = 0.9;
+    sphare0.material.reflectivity = 0.0;
 
     sphere0.position = vec3(iMouse.x, iMouse.y, -mint0 / 6.0); //set sphere position
     sphere0.rotation = (vec3(0, 0, 0));
@@ -262,6 +269,7 @@ void main() {
     sphere1.material.diffuse = vec4(0.0/255.0, 255.0/255.0,0.0/255.0,1.0);
     sphere1.position = vec3( 1000.0, 0.0, -mint0 / 4.5);
     sphere1.property = 1;
+    sphere1.material.reflectivity = 0.0;
 
     scene[1] = sphere1;
 
@@ -277,6 +285,7 @@ void main() {
     plane0.material.diffuse = vec4(250.0/255.0, 255.0/255.0,255.0/255.0,1.0);;
     plane0.material.specular = highlight0;
     plane0.material.ks = 0.9;
+    plane0.material.reflectivity = 0.5;
 
     plane0.position = P_PL; //set plane position
     plane0.rotation = (vec3(0, 0, 0));
@@ -412,6 +421,8 @@ void main() {
                             if (illum < 0.0) illum = 0.0;
                             vec4 otherCol = finalIt.material.ambient * (1.0 - illum) + finalIt.material.diffuse * illum;
 
+                            #TODO: if object is reflective shoot reflection and refraction rays and determine colors of the hits
+
                             finalGatherColorBleed += otherCol * gatherWeight;
                         }
                         else{
@@ -445,6 +456,8 @@ void main() {
             float directIllum = dot(sceneHit.normal, shadowRay.direction);
             if (directIllum < 0.0) directIllum = 0.0;
             vec4 directLightingColor = it.material.ambient * (1.0 - directIllum) + it.material.diffuse * directIllum;
+
+            #TODO: if object is reflective shoot reflection and refraction rays and determine colors of the hits
 
             finalGatherColorBleed = finalGatherColorBleed / weights;
             finalGatherAmbientOcclusion = finalGatherAmbientOcclusion / weights;
