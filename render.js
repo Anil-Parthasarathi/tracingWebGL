@@ -10,8 +10,10 @@ const vertexShaderCode = `
 const fragmentShaderCode = `
 
 #define NUMITEMS 3
-#define NOL0 7
-#define NOL1 7
+#define NOL0 4
+#define NOL1 4
+#define SAMPLESX 2
+#define SAMPLESY 2
 
 precision mediump float;
 
@@ -29,8 +31,6 @@ struct Material {
     vec4 diffuse;
     vec4 specular;
     float ks;
-
-    float reflectivity;  // Add reflectivity for the reflective effect                                                 //add here
 
 };
 
@@ -69,10 +69,6 @@ struct Hit {
     int sceneIndex;
 
 };
-
-vec3 reflectRay(vec3 incident, vec3 normal) {
-    return incident - 2.0 * dot(incident, normal) * normal;
-}
 
 vec2  p2(vec2 st)   
 {
@@ -223,131 +219,9 @@ Item sceneItemReference(int sceneIndex, Item scene[NUMITEMS]){
     return it;
 }
 
-void main() {
+vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
-    vec4 ambient, diffuse, specular;
     vec4 col = vec4(0.0);
-
-    vec2 uv = gl_FragCoord.xy / iResolution.xy; // Normalized pixel coordinates
-    vec2 uv_tex;
-
-    //an array to hold all the items in the scene
-    Item scene[NUMITEMS];
-
-    float mint0 = 10000.0;
-
-    //construct the first item, sphere0
-    Item sphere0;
-
-    sphere0.type = 0;
-
-    //set up material attributes for sphere0
-    vec4 ambient0 = vec4(134.0/255.0 , 112.0/255.0, 108.0/255.0, 1.0); 
-    vec4 dif0 = vec4(0.0/255.0, 0.0/255.0,255.0/255.0,1.0); 
-    vec4 highlight0 = vec4(225.0/255.0, 220.0/255.0,200.0/255.0,1.0); 
-
-    sphere0.material.ambient = ambient0;
-    sphere0.material.diffuse = dif0;
-    sphere0.material.specular = highlight0;
-    sphere0.material.ks = 0.9;
-    sphare0.material.reflectivity = 0.0;
-
-    sphere0.position = vec3(iMouse.x, iMouse.y, -mint0 / 6.0); //set sphere position
-    sphere0.rotation = (vec3(0, 0, 0));
-    sphere0.scale = iResolution.y/1.50;  //set sphere radius
-    
-    sphere0.property = 0; //basic diffuse
-
-    //add the sphere to the scene list
-    scene[0] = sphere0;
-
-    //add second sphere
-
-    Item sphere1;
-
-    sphere1 = sphere0;
-    sphere1.material.diffuse = vec4(0.0/255.0, 255.0/255.0,0.0/255.0,1.0);
-    sphere1.position = vec3( 1000.0, 0.0, -mint0 / 4.5);
-    sphere1.property = 1;
-    sphere1.material.reflectivity = 0.0;
-
-    scene[1] = sphere1;
-
-    //add the plane
-
-    vec3 P_PL = vec3(0.0, -200.0, 0.0); //plane position
-
-    Item plane0;
-
-    plane0.type = 1;
-
-    plane0.material.ambient = ambient0;
-    plane0.material.diffuse = vec4(250.0/255.0, 255.0/255.0,255.0/255.0,1.0);;
-    plane0.material.specular = highlight0;
-    plane0.material.ks = 0.9;
-    plane0.material.reflectivity = 0.5;
-
-    plane0.position = P_PL; //set plane position
-    plane0.rotation = (vec3(0, 0, 0));
-    plane0.scale = iResolution.y/1.50;  //set plane radius
-    
-    plane0.property = 0; //basic diffuse
-
-    //add the sphere to the scene list
-    scene[2] = plane0;
-
-    //set up orientations
-
-    vec3 V2 = vec3(0.0,0.0,0.1);
-    vec3 N2 = normalize(V2);
-    
-    vec3 V1 = vec3(0.0,1.0,0.0);
-
-    vec3 V0 = cross(V1,V2); 
-    vec3 N0 = normalize(V0);
-    
-    vec3 N1 = cross(N2, N0); 
-
-    float s0 = iResolution.x;
-    float s1 = iResolution.x;
-
-    //figure out camera position, pixel position, and light position
-
-    vec3 cameraPos = vec3(iResolution.x / 2.0, iResolution.y / 2.0, iResolution.x); // eye position
-    vec3 pixelPos =  vec3(gl_FragCoord.x, gl_FragCoord.y, -3.0);                                                             
-    vec3 lightPos = vec3(0.0, 1000.0, 0.0);
-    
-    vec3 rayDirection = normalize(pixelPos - cameraPos);
-    
-    float mint = mint0;
-    float spec;
-    float K_s;
-    float weight = 0.9;
-    float ior = pow(3.0, weight); 
-
-    vec3 P_BG = vec3(0.0,0.0,-mint0/30.0);
-    vec3 N_BG = vec3(0.0,0.0,1.0);
-    float t = -dot(N_BG,(cameraPos-P_BG))/(dot(N_BG, rayDirection));
-    vec3 N = N_BG; 
-    vec3 P_H = cameraPos + t * rayDirection;
-    mint = t;
-
-    uv_tex.x = dot(N0,(P_H-P_BG))/s0; 
-    uv_tex.y = dot(N1,(P_H-P_BG))/s1;
-    uv_tex = p2(uv_tex);
-
-    vec4 BG = texture2D(iChannel0, uv_tex);   
-
-    ambient = BG / 8.0;                                                             // 8.0 or a higher value
-
-    diffuse = BG;
-
-    specular = highlight0;
-    K_s = 0.0;
-     
-    Ray ray;
-    ray.origin = cameraPos;
-    ray.direction = rayDirection;
 
     //initial ray to find hit
     Hit sceneHit = checkSceneCollision(scene, ray);
@@ -421,8 +295,6 @@ void main() {
                             if (illum < 0.0) illum = 0.0;
                             vec4 otherCol = finalIt.material.ambient * (1.0 - illum) + finalIt.material.diffuse * illum;
 
-                            #TODO: if object is reflective shoot reflection and refraction rays and determine colors of the hits
-
                             finalGatherColorBleed += otherCol * gatherWeight;
                         }
                         else{
@@ -457,8 +329,6 @@ void main() {
             if (directIllum < 0.0) directIllum = 0.0;
             vec4 directLightingColor = it.material.ambient * (1.0 - directIllum) + it.material.diffuse * directIllum;
 
-            #TODO: if object is reflective shoot reflection and refraction rays and determine colors of the hits
-
             finalGatherColorBleed = finalGatherColorBleed / weights;
             finalGatherAmbientOcclusion = finalGatherAmbientOcclusion / weights;
             finalGatherEnvironment = finalGatherEnvironment / weights;
@@ -482,8 +352,163 @@ void main() {
 
         col = texture2D(iChannel0, environmentUV);
     }
+
+    return col;
+
+}
+
+void main() {
+
+    vec4 ambient, diffuse, specular;
+    vec4 col = vec4(0.0);
+
+    vec2 uv = gl_FragCoord.xy / iResolution.xy; // Normalized pixel coordinates
+    vec2 uv_tex;
+
+    //an array to hold all the items in the scene
+    Item scene[NUMITEMS];
+
+    float mint0 = 10000.0;
+
+    //construct the first item, sphere0
+    Item sphere0;
+
+    sphere0.type = 0;
+
+    //set up material attributes for sphere0
+    vec4 ambient0 = vec4(134.0/255.0 , 112.0/255.0, 108.0/255.0, 1.0); 
+    vec4 dif0 = vec4(0.0/255.0, 0.0/255.0,255.0/255.0,1.0); 
+    vec4 highlight0 = vec4(225.0/255.0, 220.0/255.0,200.0/255.0,1.0); 
+
+    sphere0.material.ambient = ambient0;
+    sphere0.material.diffuse = dif0;
+    sphere0.material.specular = highlight0;
+    sphere0.material.ks = 0.9;
+
+    sphere0.position = vec3(iMouse.x, iMouse.y, -mint0 / 6.0); //set sphere position
+    sphere0.rotation = (vec3(0, 0, 0));
+    sphere0.scale = iResolution.y/1.50;  //set sphere radius
+    
+    sphere0.property = 0; //basic diffuse
+
+    //add the sphere to the scene list
+    scene[0] = sphere0;
+
+    //add second sphere
+
+    Item sphere1;
+
+    sphere1 = sphere0;
+    sphere1.material.diffuse = vec4(0.0/255.0, 255.0/255.0,0.0/255.0,1.0);
+    sphere1.position = vec3( 1000.0, 0.0, -mint0 / 4.5);
+    sphere1.property = 1;
+
+    scene[1] = sphere1;
+
+    //add the plane
+
+    vec3 P_PL = vec3(0.0, -200.0, 0.0); //plane position
+
+    Item plane0;
+
+    plane0.type = 1;
+
+    plane0.material.ambient = ambient0;
+    plane0.material.diffuse = vec4(250.0/255.0, 255.0/255.0,255.0/255.0,1.0);;
+    plane0.material.specular = highlight0;
+    plane0.material.ks = 0.9;
+
+    plane0.position = P_PL; //set plane position
+    plane0.rotation = (vec3(0, 0, 0));
+    plane0.scale = iResolution.y/1.50;  //set plane radius
+    
+    plane0.property = 0; //basic diffuse
+
+    //add the sphere to the scene list
+    scene[2] = plane0;
+
+    //set up orientations
+
+    vec3 V2 = vec3(0.0,0.0,0.1);
+    vec3 N2 = normalize(V2);
+    
+    vec3 V1 = vec3(0.0,1.0,0.0);
+
+    vec3 V0 = cross(V1,V2); 
+    vec3 N0 = normalize(V0);
+    
+    vec3 N1 = cross(N2, N0); 
+
+    float s0 = iResolution.x;
+    float s1 = iResolution.x;
+
+    //figure out camera position, pixel position, and light position
+
+    vec3 cameraPos = vec3(iResolution.x / 2.0, iResolution.y / 2.0, iResolution.x); // eye position
+    vec3 pixelPos =  vec3(gl_FragCoord.x, gl_FragCoord.y, -3.0);                                                             
+    vec3 lightPos = vec3(0.0, 1000.0, 0.0);
+    
+    vec3 rayDirection = normalize(pixelPos - cameraPos);
+    
+    float mint = mint0;
+    float spec;
+    float K_s;
+    float weight = 0.9;
+    float ior = pow(3.0, weight); 
+
+    vec3 P_BG = vec3(0.0,0.0,-mint0/30.0);
+    vec3 N_BG = vec3(0.0,0.0,1.0);
+    float t = -dot(N_BG,(cameraPos-P_BG))/(dot(N_BG, rayDirection));
+    vec3 N = N_BG; 
+    vec3 P_H = cameraPos + t * rayDirection;
+    mint = t;
+
+    uv_tex.x = dot(N0,(P_H-P_BG))/s0; 
+    uv_tex.y = dot(N1,(P_H-P_BG))/s1;
+    uv_tex = p2(uv_tex);
+
+    vec4 BG = texture2D(iChannel0, uv_tex);   
+
+    ambient = BG / 8.0;                                                             // 8.0 or a higher value
+
+    diffuse = BG;
+
+    specular = highlight0;
+    K_s = 0.0;
+
+    vec4 finalCol = vec4(0.0);
+
+    //antialiasing
+    //shoots random at multiple random points in a pixel and averages the result to smooth edges
+    for (int i = 0; i < SAMPLESX; i++) {
+        for (int j = 0; j < SAMPLESY; j++) {
+        
+            vec2 offset;
+            
+            offset.x = (random(vec2(gl_FragCoord.xy + float(i * SAMPLESY + j))) - 0.5) / iResolution.x;
+            offset.y = (random2(vec2(gl_FragCoord.xy + float(i * SAMPLESY + j))) - 0.5) / iResolution.y;
+
+            uv = (gl_FragCoord.xy + vec2(float(i), float(j)) / vec2(SAMPLESX, SAMPLESY) + offset) / iResolution.xy;
+
+            pixelPos = vec3(uv * iResolution.xy, -3.0);
+
+            vec3 rayDirection = normalize(pixelPos - cameraPos);
+
+            Ray ray;
+            ray.origin = cameraPos;
+            ray.direction = rayDirection;
+
+            finalCol += rayTrace(ray, scene, lightPos, uv);
+        }
+    }
+
+    finalCol = finalCol / float(SAMPLESX*SAMPLESY);
+
+    //add in anti aliasing by shooting out rays randomly inside the pixel
+     
+    //finalCol = rayTrace(ray, scene, lightPos, uv);
    
-    gl_FragColor = vec4(col);    // Output to screen                                                    
+    gl_FragColor = vec4(finalCol);    // Output to screen                                                    
 }
 `
 
