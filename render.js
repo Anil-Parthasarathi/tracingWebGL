@@ -333,7 +333,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
             finalGatherAmbientOcclusion = finalGatherAmbientOcclusion / weights;
             finalGatherEnvironment = finalGatherEnvironment / weights;
 
-            col = finalGatherColorBleed * 0.1 + directLightingColor * 0.75 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.1 + finalGatherEnvironment * 0.05;
+            col = finalGatherColorBleed * 0.25 + directLightingColor * 0.6 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.1 + finalGatherEnvironment * 0.05;
 
             col = clamp(col, 0.0, 1.0);
 
