@@ -14,6 +14,9 @@ const fragmentShaderCode = `
 #define NOL1 4
 #define SAMPLESX 2
 #define SAMPLESY 2
+#define SHADOWSAMPLESX 10
+#define SHADOWSAMPLESZ 10
+#define LIGHTSIZE 100
 
 precision mediump float;
 
@@ -237,14 +240,47 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
         //first generate a new ray that points toward light source
 
-        Ray shadowRay;
-        shadowRay.origin = sceneHit.position + sceneHit.normal * 50.00;
-        shadowRay.direction = normalize(lightPos - sceneHit.position);
+        //TODO: change this up to shoot multiple shadow rays for area lights / smooth shadows
 
-        Hit shadowHit = checkSceneCollision(scene, shadowRay);
+        int lightHits = 0;
+
+        Ray shadowRay;
+        shadowRay.origin = sceneHit.position + sceneHit.normal * 25.00;
+
+        float startPos = -float(LIGHTSIZE)/2.0;
+        float crawlx = float(LIGHTSIZE) / float(NOL0);
+        float crawlz = float(LIGHTSIZE) / float(NOL1);
+
+        for (int i = 0; i < SHADOWSAMPLESX; i++){
+            for (int j = 0; j < SHADOWSAMPLESZ; j++){
+
+                vec3 areaLightPosition = lightPos;
+
+                // Random offsets within the light size
+                float randomOffsetX = (random(vec2(float(i), float(j))) - 0.5) * float(LIGHTSIZE);
+                float randomOffsetZ = (random2(vec2(float(i), float(j))) - 0.5) * float(LIGHTSIZE);
+
+                areaLightPosition.x += randomOffsetX;
+                areaLightPosition.z += randomOffsetZ;
+
+                shadowRay.direction = normalize(areaLightPosition - sceneHit.position);
+
+                Hit shadowHit = checkSceneCollision(scene, shadowRay);
+
+                if (!(shadowHit.sceneIndex != -1 && shadowHit.sceneIndex != sceneHit.sceneIndex)){
+
+                    lightHits += 1;
+
+                }
+            }
+        }
+
+        float lightPercent = float(lightHits) / float(SHADOWSAMPLESX * SHADOWSAMPLESZ);
+
+        float smoothShadowFactor = smooth_step(0.0, 1.0, lightPercent);
 
         //if these conditions arent true then the point is not in shadow and we should color it
-        if (!(shadowHit.sceneIndex != -1 && shadowHit.sceneIndex != sceneHit.sceneIndex)){
+        if (lightPercent > 0.0){
 
             vec4 spec = it.material.specular;
             vec4 dif = it.material.diffuse;
@@ -261,7 +297,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
             for (int i = 0; i < NOL0; i++){
                 for (int j = 0; j < NOL1; j++){
                     Ray finalGatherRay;
-                    finalGatherRay.origin = sceneHit.position + sceneHit.normal * 50.000;
+                    finalGatherRay.origin = sceneHit.position + sceneHit.normal * 25.000;
 
                     //compute direction
 
@@ -285,7 +321,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                         //first check if its in shadow
 
                         Ray finalGatherColorBleedShadowRay;
-                        finalGatherColorBleedShadowRay.origin = finalGatherHit.position + finalGatherHit.normal * 50.0;
+                        finalGatherColorBleedShadowRay.origin = finalGatherHit.position + finalGatherHit.normal * 25.0;
                         finalGatherColorBleedShadowRay.direction = normalize(vec3(lightPos - finalGatherHit.position));
 
                         Hit finalGatherColorBleedShadowHit = checkSceneCollision(scene, finalGatherColorBleedShadowRay);
@@ -339,7 +375,9 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
             col.a = 1.0;
             //col = vec4(0.0, 1.0, 0.0, 1.0)
-        }  
+        }
+            
+        col = (1.0 - smoothShadowFactor) * it.material.ambient + smoothShadowFactor * col;
 
     }
     else{
