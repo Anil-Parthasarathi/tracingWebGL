@@ -28,6 +28,18 @@ uniform int keyPress;
 
 const float pi = 3.1416;
 
+//set up orientations
+
+vec3 V2 = vec3(0.0,0.0,0.1);
+vec3 N2 = normalize(V2);
+
+vec3 V1 = vec3(0.0,1.0,0.0);
+
+vec3 V0 = cross(V1,V2); 
+vec3 N0 = normalize(V0);
+
+vec3 N1 = cross(N2, N0); 
+
 struct Material {
 
     vec4 ambient;
@@ -96,6 +108,16 @@ float random2 (vec2 st) {
 float random3 (vec2 st) {
     return fract(sin(dot(st.xy,vec2(57.0932,757.298))) * 756489.9039201);
 }
+
+vec2 textureMapSphere(vec3 direction)
+{
+    vec2 uv;
+    uv.x = 0.5 + 0.5 * atan(direction.z, direction.x) / pi;
+    uv.y = 0.5 - 0.5 * asin(direction.y) / (0.5 * pi);
+    return uv;
+}
+
+
 
 float smooth_step( float min, float max, float x )
 {
@@ -351,11 +373,8 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                         vec2 environmentUV;
 
-                        environmentUV.x = atan(finalDirection.z, finalDirection.x) / (2.0 * pi) + 0.5; 
-
-                        environmentUV.y = acos(finalDirection.y) / pi; 
-
-                        vec4 environmentColor = texture2D(iChannel0, environmentUV);
+                        vec2 uv_tex = textureMapSphere(finalGatherRay.direction);
+                        vec4 environmentColor = texture2D(iChannel0, uv_tex);
                     
 
                         finalGatherColorBleed += environmentColor * gatherWeight;
@@ -398,13 +417,8 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                 }
                 else{
 
-                    vec2 environmentUV;
-
-                    environmentUV.x = atan(reflectionRay.direction.z, reflectionRay.direction.x) / (2.0 * pi) + 0.5; 
-
-                    environmentUV.y = acos(reflectionRay.direction.y) / pi; 
-
-                    reflectionColor = texture2D(iChannel0, environmentUV);
+                    vec2 uv_tex = textureMapSphere(reflectionRay.direction);
+                    reflectionColor = texture2D(iChannel0, uv_tex);
                 }
 
                 //mix reflecred color with the regular coloring depending on reflection ratio
@@ -419,24 +433,22 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
             col = finalGatherColorBleed * 0.25 + directLightingColor * 0.6 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.1 + finalGatherEnvironment * 0.05;
 
-            col = clamp(col, 0.0, 1.0);
+            //col = clamp(col, 0.0, 1.0);
 
             col.a = 1.0;
             //col = vec4(0.0, 1.0, 0.0, 1.0)
         }
+
+        //check shadow computation since ambient looks weird in the shadows at times
             
         col = (1.0 - smoothShadowFactor) * it.material.ambient + smoothShadowFactor * col;
 
     }
     else{
 
-        vec2 environmentUV;
+        vec2 uv_tex = textureMapSphere(ray.direction);
+        col = texture2D(iChannel0, uv_tex);
 
-        environmentUV.x = atan(ray.direction.z, ray.direction.x) / (2.0 * pi) + 0.5; 
-
-        environmentUV.y = acos(ray.direction.y) / pi; 
-
-        col = texture2D(iChannel0, environmentUV);
     }
 
     return col;
@@ -488,7 +500,7 @@ void main() {
 
     sphere1 = sphere0;
     sphere1.material.diffuse = vec4(255.0/255.0, 0.0/255.0,0.0/255.0,1.0);
-    sphere1.material.reflectivity = 0.3;
+    sphere1.material.reflectivity = 1.0;
     sphere1.position = vec3( 1500.0, 500.0, -mint0 / 4.5);
     sphere1.property = 1;
 
@@ -517,18 +529,6 @@ void main() {
 
     //add the sphere to the scene list
     scene[2] = plane0;
-
-    //set up orientations
-
-    vec3 V2 = vec3(0.0,0.0,0.1);
-    vec3 N2 = normalize(V2);
-    
-    vec3 V1 = vec3(0.0,1.0,0.0);
-
-    vec3 V0 = cross(V1,V2); 
-    vec3 N0 = normalize(V0);
-    
-    vec3 N1 = cross(N2, N0); 
 
     float s0 = iResolution.x;
     float s1 = iResolution.x;
