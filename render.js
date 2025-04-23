@@ -35,6 +35,9 @@ struct Material {
     vec4 specular;
     float ks;
 
+    float reflectivity;
+    float refractivity;
+
 };
 
 struct Item {
@@ -222,6 +225,10 @@ Item sceneItemReference(int sceneIndex, Item scene[NUMITEMS]){
     return it;
 }
 
+vec3 reflectRay(vec3 incident, vec3 normal) {
+    return incident - 2.0 * dot(incident, normal) * normal;
+}       
+
 vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
     vec4 col = vec4(0.0);
@@ -361,9 +368,38 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                 }
             }
 
-            float directIllum = dot(sceneHit.normal, shadowRay.direction);
+            float directIllum = dot(sceneHit.normal, normalize(lightPos - sceneHit.position));
             if (directIllum < 0.0) directIllum = 0.0;
             vec4 directLightingColor = it.material.ambient * (1.0 - directIllum) + it.material.diffuse * directIllum;
+
+            //check for reflection color
+
+            if (it.material.reflectivity > 0.0){
+                //shoot reflection ray and retrieve the color of whatever gets hit
+
+                Ray reflectionRay;
+                reflectionRay.origin = sceneHit.position + sceneHit.normal * 25.00;
+                reflectionRay.direction = reflectRay(ray.direction, sceneHit.normal);
+
+                Hit reflectionHit = checkSceneCollision(scene, reflectionRay);
+
+                if (reflectionHit.sceneIndex != -1 && reflectionHit.sceneIndex != sceneHit.sceneIndex){
+
+                    //hit an object so compute its color
+
+                    Item reflectIt = sceneItemReference(reflectionHit.sceneIndex, scene);
+
+                    float reflectIllum = dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position));
+                    if (reflectIllum < 0.0) reflectIllum = 0.0;
+                    vec4 reflectionColor = reflectIt.material.ambient * (1.0 - reflectIllum) + reflectIt.material.diffuse * reflectIllum;
+
+                    //mix reflecred color with the regular coloring depending on reflection ratio
+
+                    directLightingColor = ((1.0 - it.material.reflectivity) * directLightingColor) + (it.material.reflectivity * reflectionColor);
+
+                }
+
+            }
 
             finalGatherColorBleed = finalGatherColorBleed / weights;
             finalGatherAmbientOcclusion = finalGatherAmbientOcclusion / weights;
@@ -422,6 +458,8 @@ void main() {
     sphere0.material.diffuse = dif0;
     sphere0.material.specular = highlight0;
     sphere0.material.ks = 0.9;
+    sphere0.material.reflectivity = 0.0;
+    sphere0.material.reflectivity = 0.0;
 
     sphere0.position = vec3(iMouse.x, iMouse.y, -mint0 / 6.0); //set sphere position
     sphere0.rotation = (vec3(0, 0, 0));
@@ -438,7 +476,8 @@ void main() {
 
     sphere1 = sphere0;
     sphere1.material.diffuse = vec4(0.0/255.0, 255.0/255.0,0.0/255.0,1.0);
-    sphere1.position = vec3( 1000.0, 0.0, -mint0 / 4.5);
+    sphere1.material.reflectivity = 0.5;
+    sphere1.position = vec3( 1500.0, 500.0, -mint0 / 4.5);
     sphere1.property = 1;
 
     scene[1] = sphere1;
@@ -455,6 +494,8 @@ void main() {
     plane0.material.diffuse = vec4(250.0/255.0, 255.0/255.0,255.0/255.0,1.0);;
     plane0.material.specular = highlight0;
     plane0.material.ks = 0.9;
+    plane0.material.reflectivity = 0.1;
+    plane0.material.refractivity = 0.0;
 
     plane0.position = P_PL; //set plane position
     plane0.rotation = (vec3(0, 0, 0));
@@ -541,6 +582,8 @@ void main() {
     }
 
     finalCol = finalCol / float(SAMPLESX*SAMPLESY);
+
+    finalCol.a = 1.0;
 
     //add in anti aliasing by shooting out rays randomly inside the pixel
      
