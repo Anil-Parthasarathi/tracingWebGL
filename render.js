@@ -383,6 +383,8 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                 Hit reflectionHit = checkSceneCollision(scene, reflectionRay);
 
+                vec4 reflectionColor;
+
                 if (reflectionHit.sceneIndex != -1 && reflectionHit.sceneIndex != sceneHit.sceneIndex){
 
                     //hit an object so compute its color
@@ -391,13 +393,23 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                     float reflectIllum = dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position));
                     if (reflectIllum < 0.0) reflectIllum = 0.0;
-                    vec4 reflectionColor = reflectIt.material.ambient * (1.0 - reflectIllum) + reflectIt.material.diffuse * reflectIllum;
-
-                    //mix reflecred color with the regular coloring depending on reflection ratio
-
-                    directLightingColor = ((1.0 - it.material.reflectivity) * directLightingColor) + (it.material.reflectivity * reflectionColor);
+                    reflectionColor = reflectIt.material.ambient * (1.0 - reflectIllum) + reflectIt.material.diffuse * reflectIllum;
 
                 }
+                else{
+
+                    vec2 environmentUV;
+
+                    environmentUV.x = atan(reflectionRay.direction.z, reflectionRay.direction.x) / (2.0 * pi) + 0.5; 
+
+                    environmentUV.y = acos(reflectionRay.direction.y) / pi; 
+
+                    reflectionColor = texture2D(iChannel0, environmentUV);
+                }
+
+                //mix reflecred color with the regular coloring depending on reflection ratio
+
+                directLightingColor = ((1.0 - it.material.reflectivity) * directLightingColor) + (it.material.reflectivity * reflectionColor);
 
             }
 
@@ -451,7 +463,7 @@ void main() {
 
     //set up material attributes for sphere0
     vec4 ambient0 = vec4(134.0/255.0 , 112.0/255.0, 108.0/255.0, 1.0); 
-    vec4 dif0 = vec4(0.0/255.0, 0.0/255.0,255.0/255.0,1.0); 
+    vec4 dif0 = vec4(0.0/255.0, 255.0/255.0,255.0/255.0,1.0); 
     vec4 highlight0 = vec4(225.0/255.0, 220.0/255.0,200.0/255.0,1.0); 
 
     sphere0.material.ambient = ambient0;
@@ -475,8 +487,8 @@ void main() {
     Item sphere1;
 
     sphere1 = sphere0;
-    sphere1.material.diffuse = vec4(0.0/255.0, 255.0/255.0,0.0/255.0,1.0);
-    sphere1.material.reflectivity = 0.5;
+    sphere1.material.diffuse = vec4(255.0/255.0, 0.0/255.0,0.0/255.0,1.0);
+    sphere1.material.reflectivity = 0.3;
     sphere1.position = vec3( 1500.0, 500.0, -mint0 / 4.5);
     sphere1.property = 1;
 
