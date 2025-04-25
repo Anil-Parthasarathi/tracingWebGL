@@ -9,7 +9,7 @@ const vertexShaderCode = `
 
 const fragmentShaderCode = `
 
-#define NUMITEMS 3
+#define NUMITEMS 5
 #define NOL0 4
 #define NOL1 4
 #define SAMPLESX 2
@@ -243,6 +243,13 @@ Item sceneItemReference(int sceneIndex, Item scene[NUMITEMS]){
     else if (sceneIndex == 2){
         it = scene[2];
     }
+    else if (sceneIndex == 3){
+        it = scene[3];
+    }
+    else if (sceneIndex == 4){
+        it = scene[4];
+    }
+
 
     return it;
 }
@@ -506,6 +513,31 @@ void main() {
 
     scene[1] = sphere1;
 
+     //add third sphere
+
+    Item sphere2;
+
+    sphere2 = sphere0;
+    sphere2.material.diffuse = vec4(255.0/255.0, 255.0/255.0,0.0/255.0,1.0);
+    sphere2.position = vec3(1000.0, 35.0, -mint0 / 3.0);  
+    sphere2.property = 1;
+    sphere2.scale = sphere0.scale * 0.5;  // make it smaller;
+
+    scene[2] = sphere2;
+
+    //add fourth sphere
+
+    Item sphere3;
+
+    sphere3 = sphere0;
+    sphere3.material.diffuse = vec4(255.0/255.0, 0.0/255.0,0.0/255.0,1.0);
+    sphere3.position = vec3(-200.0, 50.0, -mint0 / 10.0);  
+    sphere3.property = 1;
+    sphere3.scale = sphere0.scale * 0.5;  // make it smaller;
+    sphere3.material.reflectivity = 0.05;
+
+    scene[3] = sphere3;
+
     //add the plane
 
     vec3 P_PL = vec3(0.0, -200.0, 0.0); //plane position
@@ -528,7 +560,7 @@ void main() {
     plane0.property = 0; //basic diffuse
 
     //add the sphere to the scene list
-    scene[2] = plane0;
+    scene[4] = plane0;
 
     float s0 = iResolution.x;
     float s1 = iResolution.x;
