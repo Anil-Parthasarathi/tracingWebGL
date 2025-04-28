@@ -30,6 +30,9 @@ uniform int keyPress;
 const float pi = 3.1416;
 const float RAYOFFSET = 0.001;
 
+//Fake Fresnel
+vec3 fc = vec3(0.1,0.00,2.50);
+
 //set up orientations
 
 vec3 V2 = vec3(0.0,0.0,0.1);
@@ -254,6 +257,9 @@ Item sceneItemReference(int sceneIndex, Item scene[NUMITEMS]){
     else if (sceneIndex == 4){
         it = scene[4];
     }
+    /*else if (sceneIndex == 5){
+        it = scene[5];
+    }*/
 
 
     return it;
@@ -422,7 +428,9 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
             //check for reflection color
 
-            if (it.material.reflectivity > 0.0){
+            vec4 reflectionColor;
+
+            if (it.material.reflectivity > 0.0 || it.material.refractivity > 0.0){
                 //shoot reflection ray and retrieve the color of whatever gets hit
 
                 Ray reflectionRay;
@@ -431,7 +439,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                 Hit reflectionHit = checkSceneCollision(scene, reflectionRay, sceneHit.sceneIndex);
 
-                vec4 reflectionColor;
+                //TODO: REFACTOR THIS MESS
 
                 if (reflectionHit.sceneIndex != -1 && reflectionHit.sceneIndex != sceneHit.sceneIndex){
 
@@ -439,9 +447,30 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                     Item reflectIt = sceneItemReference(reflectionHit.sceneIndex, scene);
 
-                    float reflectIllum = dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position));
-                    if (reflectIllum < 0.0) reflectIllum = 0.0;
-                    reflectionColor = reflectIt.material.ambient * (1.0 - reflectIllum) + reflectIt.material.diffuse * reflectIllum;
+                    //adding ONE more bounce if it hit a reflective surface, otherwise it looks bad with just showing diffuse
+
+                    //a bit of a hack here, with one bounce the reflected ground was way too dark, so I'm only looking at reflections > 0.1 (the spheres)
+                    if (reflectIt.material.reflectivity > 0.1 || reflectIt.material.refractivity > 0.0){
+
+                        reflectionRay.origin = reflectionHit.position + reflectionHit.normal * RAYOFFSET;
+                        reflectionRay.direction = reflectRay(reflectionRay.direction, reflectionHit.normal);
+
+                        reflectionHit = checkSceneCollision(scene, reflectionRay, reflectionHit.sceneIndex);
+
+                    }
+
+                    if (reflectionHit.sceneIndex != -1 && reflectionHit.sceneIndex != sceneHit.sceneIndex){
+
+                        reflectIt = sceneItemReference(reflectionHit.sceneIndex, scene);
+
+                        float reflectIllum = dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position));
+                        if (reflectIllum < 0.0) reflectIllum = 0.0;
+                        reflectionColor = reflectIt.material.ambient * (1.0 - reflectIllum) + reflectIt.material.diffuse * reflectIllum;
+                    }
+                    else{
+                        vec2 uv_tex = textureMapSphere(reflectionRay.direction);
+                        reflectionColor = texture2D(iChannel0, uv_tex);
+                    }
 
                 }
                 else{
@@ -484,9 +513,13 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                     refractionColor = texture2D(iChannel0, uv_tex);
                 }
 
-                //mix refracted color with the regular coloring depending on reflection ratio
+                //mix refracted color with the reflection coloring depending on fake fresnel
 
-                directLightingColor = ((1.0 - it.material.refractivity) * directLightingColor) + (it.material.refractivity * refractionColor);
+                float cosVal = dot(sceneHit.normal, -ray.direction);
+
+                float fresnel = clamp(fc.z * (1.0 - cosVal) * (1.0 - cosVal) + fc.y * 2.0 * cosVal * (1.0 - cosVal) + fc.x * cosVal * cosVal, 0.0, 1.0);
+
+                directLightingColor = ((1.0 - fresnel) * refractionColor) + (fresnel * reflectionColor);
 
             }
             
@@ -576,7 +609,8 @@ void main() {
 
     sphere2 = sphere0;
     sphere2.material.diffuse = vec4(255.0/255.0, 255.0/255.0,0.0/255.0,1.0);
-    sphere2.position = vec3(1000.0, 35.0, -mint0 / 3.0);  
+    //sphere2.position = vec3(1000.0, 35.0, -mint0 / 3.0);
+    sphere2.position = vec3(1000.0, 25.0 + 200.0 * abs(cos(time / 1000.0)), -mint0 / 3.0);  
     sphere2.property = 1;
     sphere2.scale = sphere0.scale * 0.5;  // make it smaller;
 
@@ -587,8 +621,8 @@ void main() {
     Item sphere3;
 
     sphere3 = sphere0;
-    sphere3.material.diffuse = vec4(255.0/255.0, 0.0/255.0,0.0/255.0,1.0);
-    sphere3.position = vec3(0.0, 50.0 + 500.0 * cos(time / 1300.0), -mint0 / 10.0);  
+    sphere3.material.diffuse = vec4(255.0/255.0, 255.0/255.0,255.0/255.0,1.0);
+    sphere3.position = vec3(0.0, 200.0 + 500.0 * cos(time / 1300.0), -mint0 / 10.0);  
     sphere3.property = 1;
     sphere3.scale = sphere0.scale * 0.5;  // make it smaller;
     sphere3.material.reflectivity = 0.0;
@@ -619,6 +653,17 @@ void main() {
 
     //add the sphere to the scene list
     scene[4] = plane0;
+
+    /*
+    Item sphere4;
+
+    sphere4 = sphere0;
+    sphere4.material.diffuse = vec4(255.0/255.0, 0.0/255.0,255.0/255.0,1.0);
+    sphere4.position = vec3(1800.0, 35.0, -mint0 / 10.0);  
+    sphere4.property = 1;
+    sphere4.scale = sphere0.scale * 0.7;  // make it smaller;
+
+    scene[5] = sphere4;*/
 
     float s0 = iResolution.x;
     float s1 = iResolution.x;
@@ -755,10 +800,10 @@ async function main() {
 
     //prevent textures from being upside down!
     //Loads four images as textures and binds them to the WebGL context.
-    glContext.pixelStorei(glContext.UNPACK_FLIP_Y_WEBGL, true);
+    //glContext.pixelStorei(glContext.UNPACK_FLIP_Y_WEBGL, true);
 
     const texturePaths = [
-        'Assets/Images/ocean.jpg',                              
+        'Assets/Images/skies.jpg',                              
     ];
 
     const textures = await Promise.all(texturePaths.map(textureLoader));
