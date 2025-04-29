@@ -199,7 +199,7 @@ Hit checkPlaneCollision(Item item, Ray ray, float tMin){
     return h;
 }
 
-Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent){
+Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent, int shadow){
 
     Hit h;
     h.t = -1.0;
@@ -211,7 +211,7 @@ Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent){
 
     for (int i = 0; i < NUMITEMS; i++){
 
-        if (i != parent){
+        if (i != parent && !(shadow == 1 && scene[i].material.refractivity > 0.0)){
 
             Hit itemHit;
 
@@ -291,7 +291,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
     vec4 col = vec4(0.0);
 
     //initial ray to find hit
-    Hit sceneHit = checkSceneCollision(scene, ray, -1);
+    Hit sceneHit = checkSceneCollision(scene, ray, -1, 0);
 
     if (sceneHit.sceneIndex != -1){
 
@@ -329,7 +329,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                 shadowRay.direction = normalize(areaLightPosition - sceneHit.position);
 
-                Hit shadowHit = checkSceneCollision(scene, shadowRay, sceneHit.sceneIndex);
+                Hit shadowHit = checkSceneCollision(scene, shadowRay, sceneHit.sceneIndex, 1);
 
                 if (!(shadowHit.sceneIndex != -1 && shadowHit.sceneIndex != sceneHit.sceneIndex)){
 
@@ -375,7 +375,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                     finalGatherRay.direction = finalDirection; //TODO: send out in random directions around a hemisphere
 
-                    Hit finalGatherHit = checkSceneCollision(scene, finalGatherRay, sceneHit.sceneIndex);
+                    Hit finalGatherHit = checkSceneCollision(scene, finalGatherRay, sceneHit.sceneIndex, 0);
 
                     float gatherWeight = dot(sceneHit.normal, finalGatherRay.direction);
 
@@ -388,12 +388,42 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                         finalGatherColorBleedShadowRay.origin = finalGatherHit.position + finalGatherHit.normal * RAYOFFSET;
                         finalGatherColorBleedShadowRay.direction = normalize(vec3(lightPos - finalGatherHit.position));
 
-                        Hit finalGatherColorBleedShadowHit = checkSceneCollision(scene, finalGatherColorBleedShadowRay, finalGatherHit.sceneIndex);
+                        Hit finalGatherColorBleedShadowHit = checkSceneCollision(scene, finalGatherColorBleedShadowRay, finalGatherHit.sceneIndex, 1);
 
                         if (finalGatherColorBleedShadowHit.sceneIndex >= 0 && finalGatherColorBleedShadowHit.sceneIndex != finalGatherHit.sceneIndex){
                             float illum = dot(finalGatherHit.normal, finalGatherColorBleedShadowRay.direction);
                             if (illum < 0.0) illum = 0.0;
                             vec4 otherCol = finalIt.material.ambient * (1.0 - illum) + finalIt.material.diffuse * illum;
+
+                            if (finalIt.material.refractivity > 0.0){
+                                //shoot refraction ray and retrieve the color of whatever gets hit
+
+                                Ray refractionRay;
+                                refractionRay.origin = finalGatherHit.position + finalGatherHit.normal * RAYOFFSET;
+                                refractionRay.direction = refractRay(finalGatherRay.direction, finalGatherHit.normal);
+
+                                Hit refractionHit = checkSceneCollision(scene, refractionRay, finalGatherHit.sceneIndex, 0);
+
+                                if (refractionHit.sceneIndex != -1 && refractionHit.sceneIndex != finalGatherHit.sceneIndex){
+
+                                    //hit an object so compute its color
+
+                                    Item refractIt = sceneItemReference(refractionHit.sceneIndex, scene);
+
+                                    float refractIllum = dot(refractionHit.normal, normalize(lightPos - refractionHit.position));
+                                    if (refractIllum < 0.0) refractIllum = 0.0;
+                                    otherCol = refractIt.material.ambient * (1.0 - refractIllum) + refractIt.material.diffuse * refractIllum;
+
+                                }
+                                else{
+
+                                    vec2 uv_tex = textureMapSphere(refractionRay.direction);
+                                    otherCol = texture2D(iChannel0, uv_tex);
+                                }
+
+
+                            }
+
 
                             finalGatherColorBleed += otherCol * gatherWeight;
                         }
@@ -437,7 +467,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                 reflectionRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
                 reflectionRay.direction = reflectRay(ray.direction, sceneHit.normal);
 
-                Hit reflectionHit = checkSceneCollision(scene, reflectionRay, sceneHit.sceneIndex);
+                Hit reflectionHit = checkSceneCollision(scene, reflectionRay, sceneHit.sceneIndex, 0);
 
                 //TODO: REFACTOR THIS MESS
 
@@ -455,7 +485,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                         reflectionRay.origin = reflectionHit.position + reflectionHit.normal * RAYOFFSET;
                         reflectionRay.direction = reflectRay(reflectionRay.direction, reflectionHit.normal);
 
-                        reflectionHit = checkSceneCollision(scene, reflectionRay, reflectionHit.sceneIndex);
+                        reflectionHit = checkSceneCollision(scene, reflectionRay, reflectionHit.sceneIndex, 0);
 
                     }
 
@@ -492,7 +522,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                 refractionRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
                 refractionRay.direction = refractRay(ray.direction, sceneHit.normal);
 
-                Hit refractionHit = checkSceneCollision(scene, refractionRay, sceneHit.sceneIndex);
+                Hit refractionHit = checkSceneCollision(scene, refractionRay, sceneHit.sceneIndex, 0);
 
                 vec4 refractionColor;
 
