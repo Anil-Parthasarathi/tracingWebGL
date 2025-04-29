@@ -10,8 +10,8 @@ const vertexShaderCode = `
 const fragmentShaderCode = `
 
 #define NUMITEMS 5
-#define NOL0 4
-#define NOL1 4
+#define NOL0 10
+#define NOL1 10
 #define SAMPLESX 1
 #define SAMPLESY 1
 #define SHADOWSAMPLESX 6
@@ -101,6 +101,16 @@ vec2  p2(vec2 st)
     st.y = abs(2.0*(st.y - 0.5));
     return st;
 }
+
+vec3 random3Dvec(vec2 uv)
+{
+    float valuex =(2.0*fract(439029.0*sin(dot(uv, vec2(85.38, 9.38532))))-1.0);
+    float valuey = (2.0*fract(439029.0*sin(dot(uv, vec2(35.383, -7.38532))))-1.0);
+    float valuez = 0.0*(10.0*fract(329029.0*sin(dot(uv, vec2(-21.383, -3.38532))))-1.0);
+    //return vec3(valuex,valuey,valuez);
+    return vec3(0.7,0.3,0.1);
+}
+
 
 float random (vec2 st) {
     return fract(sin(dot(st.xy,vec2(12.9898,78.233))) * 43758.5453123);
@@ -355,25 +365,28 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
             vec4 finalGatherColorBleed = vec4(0.0, 0.0, 0.0, 0.0);
             float finalGatherAmbientOcclusion = 0.0;
             vec4 finalGatherEnvironment = vec4(0.0, 0.0, 0.0, 0.0);
+            vec4 finalGatherCaustics = vec4(0.0, 0.0, 0.0, 0.0);
 
             float weights = 0.0;
 
-            for (int i = 0; i < NOL0; i++){
-                for (int j = 0; j < NOL1; j++){
+            for (int j = 0; j < NOL1; j++) {
+                float vi = 0.1 + float(j) * 0.4 / float(NOL1); // Map j to vi in [0.1, 0.5]
+                for (int i = 0; i < NOL0; i++) {
                     Ray finalGatherRay;
                     finalGatherRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
 
                     //compute direction
 
-                    //lazy implementation #TODO: try to do the better way as well
-
-                    float rand1 = random(uv + float(i * NOL0 + j));
-                    float rand2 = random2(uv + float(i * NOL0 + j));
-                    float rand3 = random3(uv + float(i * NOL0 + j));
-
-                    vec3 finalDirection = normalize(sceneHit.normal + vec3(rand1, rand2, rand3));
-
-                    finalGatherRay.direction = finalDirection; //TODO: send out in random directions around a hemisphere
+                    float ui = float(i) / float(NOL0);
+                    vec3 N2t = -sceneHit.normal; 
+                    vec3 V1 = random3Dvec(uv);
+                    vec3 V0 = cross(V1, N2t);
+                    vec3 N0t = normalize(V0); 
+                    vec3 N1t = cross(sceneHit.normal, N0t); 
+                    vec3 hemisphereDirection = sin(2.0 * pi * ui) * sin(pi * vi) * N0t +
+                                cos(2.0 * pi * ui) * sin(pi * vi) * N1t -
+                                cos(pi * vi) * N2t;
+                    finalGatherRay.direction = normalize(hemisphereDirection);
 
                     Hit finalGatherHit = checkSceneCollision(scene, finalGatherRay, sceneHit.sceneIndex, 0);
 
@@ -390,7 +403,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                         Hit finalGatherColorBleedShadowHit = checkSceneCollision(scene, finalGatherColorBleedShadowRay, finalGatherHit.sceneIndex, 1);
 
-                        if (finalGatherColorBleedShadowHit.sceneIndex >= 0 && finalGatherColorBleedShadowHit.sceneIndex != finalGatherHit.sceneIndex){
+                        if (!(finalGatherColorBleedShadowHit.sceneIndex >= 0 && finalGatherColorBleedShadowHit.sceneIndex != finalGatherHit.sceneIndex)){
                             float illum = dot(finalGatherHit.normal, finalGatherColorBleedShadowRay.direction);
                             if (illum < 0.0) illum = 0.0;
                             vec4 otherCol = finalIt.material.ambient * (1.0 - illum) + finalIt.material.diffuse * illum;
@@ -398,32 +411,31 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                             if (finalIt.material.refractivity > 0.0){
                                 //shoot refraction ray and retrieve the color of whatever gets hit
 
-                                Ray refractionRay;
-                                refractionRay.origin = finalGatherHit.position + finalGatherHit.normal * RAYOFFSET;
-                                refractionRay.direction = refractRay(finalGatherRay.direction, finalGatherHit.normal);
+                                Ray causticRay;
+                                causticRay.origin = finalGatherHit.position + finalGatherHit.normal * RAYOFFSET;
+                                causticRay.direction = refractRay(finalGatherRay.direction, finalGatherHit.normal);
 
-                                Hit refractionHit = checkSceneCollision(scene, refractionRay, finalGatherHit.sceneIndex, 0);
+                                Hit causticHit = checkSceneCollision(scene, causticRay, finalGatherHit.sceneIndex, 0);
 
-                                if (refractionHit.sceneIndex != -1 && refractionHit.sceneIndex != finalGatherHit.sceneIndex){
+                                if (causticHit.sceneIndex != -1 && causticHit.sceneIndex != finalGatherHit.sceneIndex){
 
                                     //hit an object so compute its color
 
-                                    Item refractIt = sceneItemReference(refractionHit.sceneIndex, scene);
+                                    Item causticIt = sceneItemReference(causticHit.sceneIndex, scene);
 
-                                    float refractIllum = dot(refractionHit.normal, normalize(lightPos - refractionHit.position));
-                                    if (refractIllum < 0.0) refractIllum = 0.0;
-                                    otherCol = refractIt.material.ambient * (1.0 - refractIllum) + refractIt.material.diffuse * refractIllum;
+                                    float causticIllum = dot(causticHit.normal, normalize(lightPos - causticHit.position));
+                                    if (causticIllum < 0.0) causticIllum = 0.0;
+                                    otherCol = causticIt.material.ambient * (1.0 - causticIllum) + causticIt.material.diffuse * causticIllum;
 
                                 }
                                 else{
 
-                                    vec2 uv_tex = textureMapSphere(refractionRay.direction);
+                                    vec2 uv_tex = textureMapSphere(causticRay.direction);
                                     otherCol = texture2D(iChannel0, uv_tex);
                                 }
 
 
                             }
-
 
                             finalGatherColorBleed += otherCol * gatherWeight;
                         }
@@ -557,7 +569,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
             finalGatherAmbientOcclusion = finalGatherAmbientOcclusion / weights;
             finalGatherEnvironment = finalGatherEnvironment / weights;
 
-            col = finalGatherColorBleed * 0.25 + directLightingColor * 0.6 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.1 + finalGatherEnvironment * 0.05;
+            col = finalGatherColorBleed * 0.35 + directLightingColor * 0.65 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.0 + finalGatherEnvironment * 0.00;
 
             //col = clamp(col, 0.0, 1.0);
 
