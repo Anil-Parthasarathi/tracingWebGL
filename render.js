@@ -14,9 +14,9 @@ const fragmentShaderCode = `
 #define NOL1 8
 #define SAMPLESX 1
 #define SAMPLESY 1
-#define SHADOWSAMPLESX 6
-#define SHADOWSAMPLESZ 6
-#define LIGHTSIZE 100
+#define SHADOWSAMPLESX 15
+#define SHADOWSAMPLESZ 15
+#define LIGHTSIZE 1000
 
 precision mediump float;
 
@@ -351,7 +351,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
         float lightPercent = float(lightHits) / float(SHADOWSAMPLESX * SHADOWSAMPLESZ);
 
-        float smoothShadowFactor = smooth_step(0.0, 1.0, lightPercent);
+        float smoothShadowFactor = lightPercent;
 
         float finalGatherAmbientOcclusion = 0.0;
 
