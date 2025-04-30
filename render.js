@@ -10,8 +10,8 @@ const vertexShaderCode = `
 const fragmentShaderCode = `
 
 #define NUMITEMS 5
-#define NOL0 10
-#define NOL1 10
+#define NOL0 8
+#define NOL1 8
 #define SAMPLESX 1
 #define SAMPLESY 1
 #define SHADOWSAMPLESX 6
@@ -353,6 +353,8 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
         float smoothShadowFactor = smooth_step(0.0, 1.0, lightPercent);
 
+        float finalGatherAmbientOcclusion = 0.0;
+
         //if these conditions arent true then the point is not in shadow and we should color it
         if (lightPercent > 0.0){
 
@@ -363,9 +365,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
             //shoot out final gathering rays
 
             vec4 finalGatherColorBleed = vec4(0.0, 0.0, 0.0, 0.0);
-            float finalGatherAmbientOcclusion = 0.0;
             vec4 finalGatherEnvironment = vec4(0.0, 0.0, 0.0, 0.0);
-            vec4 finalGatherCaustics = vec4(0.0, 0.0, 0.0, 0.0);
 
             float weights = 0.0;
 
@@ -379,7 +379,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                     float ui = float(i) / float(NOL0);
                     vec3 N2t = -sceneHit.normal; 
-                    vec3 V1 = random3Dvec(uv);
+                    vec3 V1 = random3Dvec(uv + float(i * NOL0 + j));
                     vec3 V0 = cross(V1, N2t);
                     vec3 N0t = normalize(V0); 
                     vec3 N1t = cross(sceneHit.normal, N0t); 
@@ -390,7 +390,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                     Hit finalGatherHit = checkSceneCollision(scene, finalGatherRay, sceneHit.sceneIndex, 0);
 
-                    float gatherWeight = dot(sceneHit.normal, finalGatherRay.direction);
+                    float gatherWeight = abs(dot(sceneHit.normal, finalGatherRay.direction));
 
                     if (finalGatherHit.sceneIndex >= 0 && finalGatherHit.sceneIndex != sceneHit.sceneIndex){
                         Item finalIt = sceneItemReference(finalGatherHit.sceneIndex, scene);
@@ -472,59 +472,61 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
             vec4 reflectionColor;
 
-            if (it.material.reflectivity > 0.0 || it.material.refractivity > 0.0){
-                //shoot reflection ray and retrieve the color of whatever gets hit
-
+            if (it.material.reflectivity > 0.0 || it.material.refractivity > 0.0) {
+                // Shoot first reflection ray
                 Ray reflectionRay;
                 reflectionRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
                 reflectionRay.direction = reflectRay(ray.direction, sceneHit.normal);
 
                 Hit reflectionHit = checkSceneCollision(scene, reflectionRay, sceneHit.sceneIndex, 0);
 
-                //TODO: REFACTOR THIS MESS
-
-                if (reflectionHit.sceneIndex != -1 && reflectionHit.sceneIndex != sceneHit.sceneIndex){
-
-                    //hit an object so compute its color
-
+                if (reflectionHit.sceneIndex != -1 && reflectionHit.sceneIndex != sceneHit.sceneIndex) {
                     Item reflectIt = sceneItemReference(reflectionHit.sceneIndex, scene);
 
-                    //adding ONE more bounce if it hit a reflective surface, otherwise it looks bad with just showing diffuse
+                    vec4 bounceColor;
 
-                    //a bit of a hack here, with one bounce the reflected ground was way too dark, so I'm only looking at reflections > 0.1 (the spheres)
-                    if (reflectIt.material.reflectivity > 0.1 || reflectIt.material.refractivity > 0.0){
+                    if (reflectIt.material.reflectivity > 0.0 || reflectIt.material.refractivity > 0.0) {
+                        // Second bounce
+                        Ray secondReflectionRay;
+                        secondReflectionRay.origin = reflectionHit.position + reflectionHit.normal * RAYOFFSET;
+                        secondReflectionRay.direction = reflectRay(reflectionRay.direction, reflectionHit.normal);
 
-                        reflectionRay.origin = reflectionHit.position + reflectionHit.normal * RAYOFFSET;
-                        reflectionRay.direction = reflectRay(reflectionRay.direction, reflectionHit.normal);
+                        Hit secondHit = checkSceneCollision(scene, secondReflectionRay, reflectionHit.sceneIndex, 0);
 
-                        reflectionHit = checkSceneCollision(scene, reflectionRay, reflectionHit.sceneIndex, 0);
+                        if (secondHit.sceneIndex != -1 && secondHit.sceneIndex != reflectionHit.sceneIndex) {
+                            Item secondIt = sceneItemReference(secondHit.sceneIndex, scene);
 
+                            float illum2 = max(0.0, dot(secondHit.normal, normalize(lightPos - secondHit.position)));
+                            vec4 secondDirect = secondIt.material.ambient * (1.0 - illum2) + secondIt.material.diffuse * illum2;
+
+                            bounceColor = mix(secondDirect, secondDirect, secondIt.material.reflectivity); 
+                        } else {
+                            vec2 uv2 = textureMapSphere(secondReflectionRay.direction);
+                            vec4 sky = texture2D(iChannel0, uv2);
+                            bounceColor = mix(sky, sky, 1.0);
+                        }
+
+                        float illum1 = max(0.0, dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position)));
+                        vec4 direct1 = reflectIt.material.ambient * (1.0 - illum1) + reflectIt.material.diffuse * illum1;
+                        reflectionColor = mix(direct1, bounceColor, reflectIt.material.reflectivity);
+                    } else {
+                        // Only one bounce 
+                        float illum1 = max(0.0, dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position)));
+                        reflectionColor = reflectIt.material.ambient * (1.0 - illum1) + reflectIt.material.diffuse * illum1;
                     }
-
-                    if (reflectionHit.sceneIndex != -1 && reflectionHit.sceneIndex != sceneHit.sceneIndex){
-
-                        reflectIt = sceneItemReference(reflectionHit.sceneIndex, scene);
-
-                        float reflectIllum = dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position));
-                        if (reflectIllum < 0.0) reflectIllum = 0.0;
-                        reflectionColor = reflectIt.material.ambient * (1.0 - reflectIllum) + reflectIt.material.diffuse * reflectIllum;
-                    }
-                    else{
-                        vec2 uv_tex = textureMapSphere(reflectionRay.direction);
-                        reflectionColor = texture2D(iChannel0, uv_tex);
-                    }
-
-                }
-                else{
-
+                } else {
                     vec2 uv_tex = textureMapSphere(reflectionRay.direction);
                     reflectionColor = texture2D(iChannel0, uv_tex);
                 }
 
-                //mix reflecred color with the regular coloring depending on reflection ratio
+                // Mix final result with base shading
+                directLightingColor = mix(directLightingColor, reflectionColor, it.material.reflectivity);
 
-                directLightingColor = ((1.0 - it.material.reflectivity) * directLightingColor) + (it.material.reflectivity * reflectionColor);
+                if (it.material.reflectivity > 0.8){
 
+                    directLightingColor = it.material.ambient * (1.0 - directIllum) + directLightingColor * directIllum;
+                
+                }
             }
 
             if (it.material.refractivity > 0.0){
@@ -569,12 +571,11 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
             finalGatherAmbientOcclusion = finalGatherAmbientOcclusion / weights;
             finalGatherEnvironment = finalGatherEnvironment / weights;
 
-            col = finalGatherColorBleed * 0.35 + directLightingColor * 0.65 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.0 + finalGatherEnvironment * 0.00;
+            col = finalGatherColorBleed * 0.4 + directLightingColor * 0.5 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.10 + finalGatherEnvironment * 0.1;
 
-            //col = clamp(col, 0.0, 1.0);
+            col = clamp(col, 0.0, 1.0);
 
             col.a = 1.0;
-            //col = vec4(0.0, 1.0, 0.0, 1.0)
         }
 
         //check shadow computation since ambient looks weird in the shadows at times
@@ -667,7 +668,7 @@ void main() {
     sphere3.position = vec3(0.0, 200.0 + 500.0 * cos(time / 1300.0), -mint0 / 10.0);  
     sphere3.property = 1;
     sphere3.scale = sphere0.scale * 0.5;  // make it smaller;
-    sphere3.material.reflectivity = 0.0;
+    sphere3.material.reflectivity = 1.0;
     sphere3.material.refractivity = 1.0;
 
     scene[3] = sphere3;
