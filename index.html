@@ -11,6 +11,31 @@
         Image Synthesis Project 3: Real Time Ray Tracing With Final Gathering 
     </h1>
 
+    <div class="controls">
+      <div class = "radioButtons">
+        <label>
+          <input
+            type="radio"
+            name="renderStyle"
+            value="0"
+            onclick="setRenderStyle('0')"
+            checked
+          />
+          Default
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="renderStyle"
+            value="4"
+            onclick="setRenderStyle('4')"
+          />
+          Rotation
+        </label>
+      </div>
+
+      <p></p>
+
     <div>Current FPS: <span id="fps"></span></div>
 
     <canvas id="renderCanvas" width="1000" height="720"></canvas>

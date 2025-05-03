@@ -14,8 +14,8 @@ const fragmentShaderCode = `
 #define NOL1 8
 #define SAMPLESX 1
 #define SAMPLESY 1
-#define SHADOWSAMPLESX 15
-#define SHADOWSAMPLESZ 15
+#define SHADOWSAMPLESX 12
+#define SHADOWSAMPLESZ 12
 #define LIGHTSIZE 1000
 
 precision mediump float;
@@ -23,11 +23,17 @@ precision mediump float;
 uniform vec3 iResolution;
 uniform vec4 iMouse;
 uniform float time;  
-
+uniform int renderStyle;
 uniform sampler2D iChannel0;     
 uniform int keyPress;
 
-const float pi = 3.1416;
+const float pi = 3.14159265;
+const float twopi = 6.28318530;
+
+const float invNOL0 = 1.0 / float(NOL0);
+
+const float invNOL1 = 1.0 / float(NOL1);
+
 const float RAYOFFSET = 0.001;
 
 //Fake Fresnel
@@ -64,16 +70,7 @@ struct Item {
     vec3 position;
     vec3 rotation;
     float scale; //for the sake of simplicity lets just say that this would be the radius for spheres and planes can be assumed to always have the same length and width (given by this value)
-    int property; //we can use this to determine whether the item is reflective, refractive, diffuse, etc.
-
-    /*
-
-    property 0: basic diffuse
-    property 1: reflective
-
-    (^keep adding to here so we can keep track)
-
-    */
+    float scaleSquared;
 };
 
 struct Ray {
@@ -156,8 +153,10 @@ Hit checkSphereCollision(Item item, Ray ray, float tMin){
     h.normal = vec3(-1.0);
     h.sceneIndex = -1;
 
-    float B = dot(ray.direction, item.position - ray.origin);
-    float C = dot(ray.origin - item.position, ray.origin - item.position) - item.scale*item.scale; 
+    vec3 distToItem = ray.origin - item.position;
+
+    float B = dot(ray.direction, -distToItem);
+    float C = dot(distToItem, distToItem) - item.scaleSquared; 
     
     float delta = B*B-C; 
     
@@ -171,11 +170,9 @@ Hit checkSphereCollision(Item item, Ray ray, float tMin){
 
             vec3 hitPosition = ray.origin + t * ray.direction; 
 
-            vec3 hitNormal = normalize((hitPosition - item.position) / item.scale);
-
             h.t = t;
             h.position = hitPosition;
-            h.normal = hitNormal;
+            h.normal = normalize((hitPosition - item.position) / item.scale);
             h.sceneIndex = -1; //to be defined later
 
         }
@@ -184,6 +181,8 @@ Hit checkSphereCollision(Item item, Ray ray, float tMin){
     return h;
 }
 
+vec3 N_PL = vec3(0.0,1.0,0.0); //assuming upward facing plane for now
+
 Hit checkPlaneCollision(Item item, Ray ray, float tMin){
     Hit h;
     h.t = -1.0;
@@ -191,10 +190,10 @@ Hit checkPlaneCollision(Item item, Ray ray, float tMin){
     h.normal = vec3(-1.0);
     h.sceneIndex = -1;
 
-    vec3 N_PL = vec3(0.0,1.0,0.0); //assuming upward facing plane for now
+    float nDotR = dot(N_PL, ray.direction);
 
-    if(dot(N_PL, ray.direction) < 0.0){ //We hit plane
-        float t = -dot(N_PL, (ray.origin - item.position)) / (dot(N_PL, ray.direction));
+    if(nDotR < 0.0){ //We hit plane
+        float t = -dot(N_PL, (ray.origin - item.position)) / nDotR;
 
         if(t < tMin)
         {
@@ -202,7 +201,6 @@ Hit checkPlaneCollision(Item item, Ray ray, float tMin){
             h.position = ray.origin + t * ray.direction;
             h.normal = N_PL; 
             h.sceneIndex = -1; //to be defined later
-
         }
     }
     
@@ -229,7 +227,8 @@ Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent, int shadow){
             if (scene[i].type == 0){
                 itemHit = checkSphereCollision(scene[i], ray, tMin);
             }
-            else if (scene[i].type == 1){
+            else {
+                //plane
                 itemHit = checkPlaneCollision(scene[i], ray, tMin);
             }
 
@@ -239,6 +238,7 @@ Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent, int shadow){
 
                 h = itemHit;
                 h.sceneIndex = i;
+                
 
             }
         }
@@ -322,8 +322,8 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
         shadowRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
 
         float startPos = -float(LIGHTSIZE)/2.0;
-        float crawlx = float(LIGHTSIZE) / float(NOL0);
-        float crawlz = float(LIGHTSIZE) / float(NOL1);
+        float crawlx = float(LIGHTSIZE) * invNOL0;
+        float crawlz = float(LIGHTSIZE) * invNOL1;
 
         for (int i = 0; i < SHADOWSAMPLESX; i++){
             for (int j = 0; j < SHADOWSAMPLESZ; j++){
@@ -341,7 +341,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                 Hit shadowHit = checkSceneCollision(scene, shadowRay, sceneHit.sceneIndex, 1);
 
-                if (!(shadowHit.sceneIndex != -1 && shadowHit.sceneIndex != sceneHit.sceneIndex)){
+                if (shadowHit.sceneIndex == -1){
 
                     lightHits += 1;
 
@@ -351,40 +351,36 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
         float lightPercent = float(lightHits) / float(SHADOWSAMPLESX * SHADOWSAMPLESZ);
 
-        float smoothShadowFactor = lightPercent;
-
-        float finalGatherAmbientOcclusion = 0.0;
-
         //if these conditions arent true then the point is not in shadow and we should color it
         if (lightPercent > 0.0){
 
-            vec4 spec = it.material.specular;
-            vec4 dif = it.material.diffuse;
-            float exp = it.material.ks;
-
             //shoot out final gathering rays
 
+            float finalGatherAmbientOcclusion = 0.0;
             vec4 finalGatherColorBleed = vec4(0.0, 0.0, 0.0, 0.0);
             vec4 finalGatherEnvironment = vec4(0.0, 0.0, 0.0, 0.0);
 
             float weights = 0.0;
 
+            vec3 N2t = -sceneHit.normal; 
+
+            Ray finalGatherRay;
+            finalGatherRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
+
             for (int j = 0; j < NOL1; j++) {
-                float vi = 0.1 + float(j) * 0.4 / float(NOL1); // Map j to vi in [0.1, 0.5]
+                float vi = 0.1 + float(j) * 0.4 * invNOL1; 
                 for (int i = 0; i < NOL0; i++) {
-                    Ray finalGatherRay;
-                    finalGatherRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
 
                     //compute direction
 
-                    float ui = float(i) / float(NOL0);
-                    vec3 N2t = -sceneHit.normal; 
+                    float ui = float(i) * invNOL0;
                     vec3 V1 = random3Dvec(uv + float(i * NOL0 + j));
                     vec3 V0 = cross(V1, N2t);
                     vec3 N0t = normalize(V0); 
                     vec3 N1t = cross(sceneHit.normal, N0t); 
-                    vec3 hemisphereDirection = sin(2.0 * pi * ui) * sin(pi * vi) * N0t +
-                                cos(2.0 * pi * ui) * sin(pi * vi) * N1t -
+                    
+                    vec3 hemisphereDirection = sin(twopi * ui) * sin(pi * vi) * N0t +
+                                cos(twopi * ui) * sin(pi * vi) * N1t -
                                 cos(pi * vi) * N2t;
                     finalGatherRay.direction = normalize(hemisphereDirection);
 
@@ -392,7 +388,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                     float gatherWeight = abs(dot(sceneHit.normal, finalGatherRay.direction));
 
-                    if (finalGatherHit.sceneIndex >= 0 && finalGatherHit.sceneIndex != sceneHit.sceneIndex){
+                    if (finalGatherHit.sceneIndex >= 0){
                         Item finalIt = sceneItemReference(finalGatherHit.sceneIndex, scene);
 
                         //first check if its in shadow
@@ -403,7 +399,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                         Hit finalGatherColorBleedShadowHit = checkSceneCollision(scene, finalGatherColorBleedShadowRay, finalGatherHit.sceneIndex, 1);
 
-                        if (!(finalGatherColorBleedShadowHit.sceneIndex >= 0 && finalGatherColorBleedShadowHit.sceneIndex != finalGatherHit.sceneIndex)){
+                        if (finalGatherColorBleedShadowHit.sceneIndex == -1){
                             float illum = dot(finalGatherHit.normal, finalGatherColorBleedShadowRay.direction);
                             if (illum < 0.0) illum = 0.0;
                             vec4 otherCol = finalIt.material.ambient * (1.0 - illum) + finalIt.material.diffuse * illum;
@@ -417,7 +413,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                                 Hit causticHit = checkSceneCollision(scene, causticRay, finalGatherHit.sceneIndex, 0);
 
-                                if (causticHit.sceneIndex != -1 && causticHit.sceneIndex != finalGatherHit.sceneIndex){
+                                if (causticHit.sceneIndex != -1){
 
                                     //hit an object so compute its color
 
@@ -425,7 +421,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                                     float causticIllum = dot(causticHit.normal, normalize(lightPos - causticHit.position));
                                     if (causticIllum < 0.0) causticIllum = 0.0;
-                                    otherCol = causticIt.material.ambient * (1.0 - causticIllum) + causticIt.material.diffuse * causticIllum;
+                                    otherCol = mix(causticIt.material.ambient, causticIt.material.diffuse, causticIllum);
 
                                 }
                                 else{
@@ -447,8 +443,6 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                         //choose black for environment as well
                     }
                     else{
-
-                        vec2 environmentUV;
 
                         vec2 uv_tex = textureMapSphere(finalGatherRay.direction);
                         vec4 environmentColor = texture2D(iChannel0, uv_tex);
@@ -480,7 +474,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                 Hit reflectionHit = checkSceneCollision(scene, reflectionRay, sceneHit.sceneIndex, 0);
 
-                if (reflectionHit.sceneIndex != -1 && reflectionHit.sceneIndex != sceneHit.sceneIndex) {
+                if (reflectionHit.sceneIndex != -1) {
                     Item reflectIt = sceneItemReference(reflectionHit.sceneIndex, scene);
 
                     vec4 bounceColor;
@@ -493,7 +487,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                         Hit secondHit = checkSceneCollision(scene, secondReflectionRay, reflectionHit.sceneIndex, 0);
 
-                        if (secondHit.sceneIndex != -1 && secondHit.sceneIndex != reflectionHit.sceneIndex) {
+                        if (secondHit.sceneIndex != -1) {
                             Item secondIt = sceneItemReference(secondHit.sceneIndex, scene);
 
                             float illum2 = max(0.0, dot(secondHit.normal, normalize(lightPos - secondHit.position)));
@@ -540,7 +534,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                 vec4 refractionColor;
 
-                if (refractionHit.sceneIndex != -1 && refractionHit.sceneIndex != sceneHit.sceneIndex){
+                if (refractionHit.sceneIndex != -1){
 
                     //hit an object so compute its color
 
@@ -580,7 +574,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
         //check shadow computation since ambient looks weird in the shadows at times
             
-        col = (1.0 - smoothShadowFactor) * it.material.ambient + smoothShadowFactor * col;
+        col = mix(it.material.ambient, col, lightPercent);
 
     }
     else{
@@ -624,13 +618,11 @@ void main() {
     sphere0.material.reflectivity = 0.0;
     sphere0.material.reflectivity = 0.0;
 
-    sphere0.position = vec3(iMouse.x, iMouse.y, -mint0 / 6.0); //set sphere position
+    sphere0.position = vec3(iMouse.x, 0.0, -mint0 / 6.0); //set sphere position
     sphere0.rotation = (vec3(0, 0, 0));
     sphere0.scale = iResolution.y/1.50;  //set sphere radius
+    sphere0.scaleSquared = sphere0.scale * sphere0.scale;
     
-    
-    sphere0.property = 0; //basic diffuse
-
     //add the sphere to the scene list
     scene[0] = sphere0;
 
@@ -642,7 +634,6 @@ void main() {
     sphere1.material.diffuse = vec4(255.0/255.0, 255.0/255.0,255.0/255.0,1.0);
     sphere1.material.reflectivity = 0.9;
     sphere1.position = vec3( 1500.0, 600.0 + 350.0 * sin(time / 500.0), -mint0 / 4.5);
-    sphere1.property = 1;
 
     scene[1] = sphere1;
 
@@ -654,8 +645,8 @@ void main() {
     sphere2.material.diffuse = vec4(255.0/255.0, 255.0/255.0,0.0/255.0,1.0);
     //sphere2.position = vec3(1000.0, 35.0, -mint0 / 3.0);
     sphere2.position = vec3(1000.0, 25.0 + 200.0 * abs(cos(time / 1000.0)), -mint0 / 3.0);  
-    sphere2.property = 1;
     sphere2.scale = sphere0.scale * 0.5;  // make it smaller;
+    sphere2.scaleSquared = sphere2.scale * sphere2.scale;
 
     scene[2] = sphere2;
 
@@ -666,8 +657,8 @@ void main() {
     sphere3 = sphere0;
     sphere3.material.diffuse = vec4(255.0/255.0, 255.0/255.0,255.0/255.0,1.0);
     sphere3.position = vec3(0.0, 200.0 + 500.0 * cos(time / 1300.0), -mint0 / 10.0);  
-    sphere3.property = 1;
     sphere3.scale = sphere0.scale * 0.5;  // make it smaller;
+    sphere3.scaleSquared = sphere3.scale * sphere3.scale;
     sphere3.material.reflectivity = 1.0;
     sphere3.material.refractivity = 1.0;
 
@@ -691,9 +682,8 @@ void main() {
     plane0.position = P_PL; //set plane position
     plane0.rotation = (vec3(0, 0, 0));
     plane0.scale = iResolution.y/1.50;  //set plane radius
+    plane0.scaleSquared = plane0.scale * plane0.scale;
     
-    plane0.property = 0; //basic diffuse
-
     //add the sphere to the scene list
     scene[4] = plane0;
 
@@ -703,8 +693,8 @@ void main() {
     sphere4 = sphere0;
     sphere4.material.diffuse = vec4(255.0/255.0, 0.0/255.0,255.0/255.0,1.0);
     sphere4.position = vec3(1800.0, 35.0, -mint0 / 10.0);  
-    sphere4.property = 1;
     sphere4.scale = sphere0.scale * 0.7;  // make it smaller;
+    sphere4.scaleSquared = sphere4.scale * sphere4.scale;
 
     scene[5] = sphere4;*/
 
@@ -778,6 +768,9 @@ var keyPressed = 0;
 var iMouseAttribute;
 var iKeyAttribute;
 var iTimeAttribute;
+
+var renderStyle = 0;
+var renderStyleAttribute;
 
 async function main() {
     //set up the renderings
@@ -892,8 +885,8 @@ async function main() {
 
     iMouseAttribute = glContext.getUniformLocation(glProgram, 'iMouse');
     iResolutionAttribute = glContext.getUniformLocation(glProgram, 'iResolution');
-    iKeyAttribute = glContext.getUniformLocation(glProgram, 'keyPress');
     iTimeAttribute = glContext.getUniformLocation(glProgram, 'time');
+    renderStyleAttribute = glContext.getUniformLocation(glProgram, 'renderStyle');
 
     //set up mouse and its event listener
 
@@ -997,8 +990,8 @@ function render(curTime){
 
     glContext.uniform4f(iMouseAttribute, mousePos.x, mousePos.y, 0.0, 0.0);
     glContext.uniform3f(iResolutionAttribute, canv.width, canv.height, 1.0);
-    glContext.uniform1i(iKeyAttribute, keyPressed);
     glContext.uniform1f(iTimeAttribute, performance.now());
+    glContext.uniform1i(renderStyleAttribute, renderStyle);
 
     //draw the scene
     glContext.drawArrays(glContext.TRIANGLES, 0, 6);
@@ -1006,3 +999,13 @@ function render(curTime){
 }
 
 main();
+
+async function setRenderStyle(style){
+    if (style == "0"){
+        renderStyle = 0;
+    }
+    else if (style == "1"){
+        renderStyle = 1;
+    }
+}
+window.setRenderStyle = setRenderStyle;
