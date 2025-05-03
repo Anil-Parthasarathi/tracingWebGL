@@ -1,24 +1,43 @@
+const vertexShaderCode = `
+    attribute vec4 pos;  
+    
+    void main() {
+    
+        gl_Position = pos;
+    }
+`;
 
-#define NUMITEMS 5
-#define NOL0 4
-#define NOL1 4
+const fragmentShaderCode = `
+
+#define NUMITEMS 6
+#define NOL0 15
+#define NOL1 15
 #define SAMPLESX 2
-#define SAMPLESY 1
-#define SHADOWSAMPLESX 10
-#define SHADOWSAMPLESZ 10
-#define LIGHTSIZE 100
+#define SAMPLESY 2
+#define SHADOWSAMPLESX 25
+#define SHADOWSAMPLESZ 25
+#define LIGHTSIZE 1000
 
 precision mediump float;
 
 uniform vec3 iResolution;
 uniform vec4 iMouse;
 uniform float time;  
-
+uniform int renderStyle;
 uniform sampler2D iChannel0;     
 uniform int keyPress;
 
-const float pi = 3.1416;
+const float pi = 3.14159265;
+const float twopi = 6.28318530;
+
+const float invNOL0 = 1.0 / float(NOL0);
+
+const float invNOL1 = 1.0 / float(NOL1);
+
 const float RAYOFFSET = 0.001;
+
+//Fake Fresnel
+vec3 fc = vec3(0.1,0.00,2.50);
 
 //set up orientations
 
@@ -51,16 +70,7 @@ struct Item {
     vec3 position;
     vec3 rotation;
     float scale; //for the sake of simplicity lets just say that this would be the radius for spheres and planes can be assumed to always have the same length and width (given by this value)
-    int property; //we can use this to determine whether the item is reflective, refractive, diffuse, etc.
-
-    /*
-
-    property 0: basic diffuse
-    property 1: reflective
-
-    (^keep adding to here so we can keep track)
-
-    */
+    float scaleSquared;
 };
 
 struct Ray {
@@ -88,6 +98,16 @@ vec2  p2(vec2 st)
     st.y = abs(2.0*(st.y - 0.5));
     return st;
 }
+
+vec3 random3Dvec(vec2 uv)
+{
+    float valuex =(2.0*fract(439029.0*sin(dot(uv, vec2(85.38, 9.38532))))-1.0);
+    float valuey = (2.0*fract(439029.0*sin(dot(uv, vec2(35.383, -7.38532))))-1.0);
+    float valuez = 0.0*(10.0*fract(329029.0*sin(dot(uv, vec2(-21.383, -3.38532))))-1.0);
+    //return vec3(valuex,valuey,valuez);
+    return vec3(0.7,0.3,0.1);
+}
+
 
 float random (vec2 st) {
     return fract(sin(dot(st.xy,vec2(12.9898,78.233))) * 43758.5453123);
@@ -133,8 +153,10 @@ Hit checkSphereCollision(Item item, Ray ray, float tMin){
     h.normal = vec3(-1.0);
     h.sceneIndex = -1;
 
-    float B = dot(ray.direction, item.position - ray.origin);
-    float C = dot(ray.origin - item.position, ray.origin - item.position) - item.scale*item.scale; 
+    vec3 distToItem = ray.origin - item.position;
+
+    float B = dot(ray.direction, -distToItem);
+    float C = dot(distToItem, distToItem) - item.scaleSquared; 
     
     float delta = B*B-C; 
     
@@ -148,11 +170,9 @@ Hit checkSphereCollision(Item item, Ray ray, float tMin){
 
             vec3 hitPosition = ray.origin + t * ray.direction; 
 
-            vec3 hitNormal = normalize((hitPosition - item.position) / item.scale);
-
             h.t = t;
             h.position = hitPosition;
-            h.normal = hitNormal;
+            h.normal = normalize((hitPosition - item.position) / item.scale);
             h.sceneIndex = -1; //to be defined later
 
         }
@@ -160,6 +180,8 @@ Hit checkSphereCollision(Item item, Ray ray, float tMin){
     
     return h;
 }
+
+vec3 N_PL = vec3(0.0,1.0,0.0); //assuming upward facing plane for now
 
 Hit checkPlaneCollision(Item item, Ray ray, float tMin){
     Hit h;
@@ -168,10 +190,10 @@ Hit checkPlaneCollision(Item item, Ray ray, float tMin){
     h.normal = vec3(-1.0);
     h.sceneIndex = -1;
 
-    vec3 N_PL = vec3(0.0,1.0,0.0); //assuming upward facing plane for now
+    float nDotR = dot(N_PL, ray.direction);
 
-    if(dot(N_PL, ray.direction) < 0.0){ //We hit plane
-        float t = -dot(N_PL, (ray.origin - item.position)) / (dot(N_PL, ray.direction));
+    if(nDotR < 0.0){ //We hit plane
+        float t = -dot(N_PL, (ray.origin - item.position)) / nDotR;
 
         if(t < tMin)
         {
@@ -179,14 +201,13 @@ Hit checkPlaneCollision(Item item, Ray ray, float tMin){
             h.position = ray.origin + t * ray.direction;
             h.normal = N_PL; 
             h.sceneIndex = -1; //to be defined later
-
         }
     }
     
     return h;
 }
 
-Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent){
+Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent, int shadow){
 
     Hit h;
     h.t = -1.0;
@@ -198,7 +219,7 @@ Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent){
 
     for (int i = 0; i < NUMITEMS; i++){
 
-        if (i != parent){
+        if (i != parent && !(shadow == 1 && scene[i].material.refractivity > 0.0)){
 
             Hit itemHit;
 
@@ -206,7 +227,8 @@ Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent){
             if (scene[i].type == 0){
                 itemHit = checkSphereCollision(scene[i], ray, tMin);
             }
-            else if (scene[i].type == 1){
+            else {
+                //plane
                 itemHit = checkPlaneCollision(scene[i], ray, tMin);
             }
 
@@ -216,6 +238,7 @@ Hit checkSceneCollision(Item scene[NUMITEMS], Ray ray, int parent){
 
                 h = itemHit;
                 h.sceneIndex = i;
+                
 
             }
         }
@@ -244,6 +267,9 @@ Item sceneItemReference(int sceneIndex, Item scene[NUMITEMS]){
     else if (sceneIndex == 4){
         it = scene[4];
     }
+    else if (sceneIndex == 5){
+        it = scene[5];
+    }
 
 
     return it;
@@ -258,27 +284,15 @@ vec3 reflectRay(vec3 incident, vec3 normal) {
 }
 
 vec3 refractRay(vec3 incident, vec3 normal) {
-    float cosI = -dot(normal, incident);
-    float etaI = 1.0; // Air
-    float etaT = ior; // Object
+    float cosVal = -dot(normal, incident);
     vec3 n = normal;
     
-    if(cosI < 0.0) {
-        cosI = -cosI;
-        n = -normal;
-        float temp = etaI;
-        etaI = etaT;
-        etaT = temp;
-    }
-    
-    float eta = etaI / etaT;
-    float k = 1.0 - eta * eta * (1.0 - cosI * cosI);
+    float k = 1.0 - refractValue * refractValue * (1.0 - cosVal * cosVal);
     
     if(k < 0.0) {
-        // Total internal reflection
         return reflectRay(incident, normal);
     } else {
-        return (eta * incident + (eta * cosI - sqrt(k)) * n);
+        return (refractValue * incident + (refractValue * cosVal - sqrt(k)) * n);
     }
 }         
 
@@ -287,7 +301,7 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
     vec4 col = vec4(0.0);
 
     //initial ray to find hit
-    Hit sceneHit = checkSceneCollision(scene, ray, -1);
+    Hit sceneHit = checkSceneCollision(scene, ray, -1, 0);
 
     if (sceneHit.sceneIndex != -1){
 
@@ -308,8 +322,8 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
         shadowRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
 
         float startPos = -float(LIGHTSIZE)/2.0;
-        float crawlx = float(LIGHTSIZE) / float(NOL0);
-        float crawlz = float(LIGHTSIZE) / float(NOL1);
+        float crawlx = float(LIGHTSIZE) * invNOL0;
+        float crawlz = float(LIGHTSIZE) * invNOL1;
 
         for (int i = 0; i < SHADOWSAMPLESX; i++){
             for (int j = 0; j < SHADOWSAMPLESZ; j++){
@@ -325,9 +339,9 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
                 shadowRay.direction = normalize(areaLightPosition - sceneHit.position);
 
-                Hit shadowHit = checkSceneCollision(scene, shadowRay, sceneHit.sceneIndex);
+                Hit shadowHit = checkSceneCollision(scene, shadowRay, sceneHit.sceneIndex, 1);
 
-                if (!(shadowHit.sceneIndex != -1 && shadowHit.sceneIndex != sceneHit.sceneIndex)){
+                if (shadowHit.sceneIndex == -1){
 
                     lightHits += 1;
 
@@ -337,45 +351,44 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
         float lightPercent = float(lightHits) / float(SHADOWSAMPLESX * SHADOWSAMPLESZ);
 
-        float smoothShadowFactor = smooth_step(0.0, 1.0, lightPercent);
-
         //if these conditions arent true then the point is not in shadow and we should color it
         if (lightPercent > 0.0){
 
-            vec4 spec = it.material.specular;
-            vec4 dif = it.material.diffuse;
-            float exp = it.material.ks;
-
             //shoot out final gathering rays
 
-            vec4 finalGatherColorBleed = vec4(0.0, 0.0, 0.0, 0.0);
             float finalGatherAmbientOcclusion = 0.0;
+            vec4 finalGatherColorBleed = vec4(0.0, 0.0, 0.0, 0.0);
             vec4 finalGatherEnvironment = vec4(0.0, 0.0, 0.0, 0.0);
 
             float weights = 0.0;
 
-            for (int i = 0; i < NOL0; i++){
-                for (int j = 0; j < NOL1; j++){
-                    Ray finalGatherRay;
-                    finalGatherRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
+            vec3 N2t = -sceneHit.normal; 
+
+            Ray finalGatherRay;
+            finalGatherRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
+
+            for (int j = 0; j < NOL1; j++) {
+                float vi = 0.1 + float(j) * 0.4 * invNOL1; 
+                for (int i = 0; i < NOL0; i++) {
 
                     //compute direction
 
-                    //lazy implementation #TODO: try to do the better way as well
+                    float ui = float(i) * invNOL0;
+                    vec3 V1 = random3Dvec(uv + float(i * NOL0 + j));
+                    vec3 V0 = cross(V1, N2t);
+                    vec3 N0t = normalize(V0); 
+                    vec3 N1t = cross(sceneHit.normal, N0t); 
+                    
+                    vec3 hemisphereDirection = sin(twopi * ui) * sin(pi * vi) * N0t +
+                                cos(twopi * ui) * sin(pi * vi) * N1t -
+                                cos(pi * vi) * N2t;
+                    finalGatherRay.direction = normalize(hemisphereDirection);
 
-                    float rand1 = random(uv + float(i * NOL0 + j));
-                    float rand2 = random2(uv + float(i * NOL0 + j));
-                    float rand3 = random3(uv + float(i * NOL0 + j));
+                    Hit finalGatherHit = checkSceneCollision(scene, finalGatherRay, sceneHit.sceneIndex, 0);
 
-                    vec3 finalDirection = normalize(sceneHit.normal + vec3(rand1, rand2, rand3));
+                    float gatherWeight = abs(dot(sceneHit.normal, finalGatherRay.direction));
 
-                    finalGatherRay.direction = finalDirection; //TODO: send out in random directions around a hemisphere
-
-                    Hit finalGatherHit = checkSceneCollision(scene, finalGatherRay, sceneHit.sceneIndex);
-
-                    float gatherWeight = dot(sceneHit.normal, finalGatherRay.direction);
-
-                    if (finalGatherHit.sceneIndex >= 0 && finalGatherHit.sceneIndex != sceneHit.sceneIndex){
+                    if (finalGatherHit.sceneIndex >= 0){
                         Item finalIt = sceneItemReference(finalGatherHit.sceneIndex, scene);
 
                         //first check if its in shadow
@@ -384,12 +397,41 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                         finalGatherColorBleedShadowRay.origin = finalGatherHit.position + finalGatherHit.normal * RAYOFFSET;
                         finalGatherColorBleedShadowRay.direction = normalize(vec3(lightPos - finalGatherHit.position));
 
-                        Hit finalGatherColorBleedShadowHit = checkSceneCollision(scene, finalGatherColorBleedShadowRay, finalGatherHit.sceneIndex);
+                        Hit finalGatherColorBleedShadowHit = checkSceneCollision(scene, finalGatherColorBleedShadowRay, finalGatherHit.sceneIndex, 1);
 
-                        if (finalGatherColorBleedShadowHit.sceneIndex >= 0 && finalGatherColorBleedShadowHit.sceneIndex != finalGatherHit.sceneIndex){
+                        if (finalGatherColorBleedShadowHit.sceneIndex == -1){
                             float illum = dot(finalGatherHit.normal, finalGatherColorBleedShadowRay.direction);
                             if (illum < 0.0) illum = 0.0;
                             vec4 otherCol = finalIt.material.ambient * (1.0 - illum) + finalIt.material.diffuse * illum;
+
+                            if (finalIt.material.refractivity > 0.0){
+                                //shoot refraction ray and retrieve the color of whatever gets hit
+
+                                Ray causticRay;
+                                causticRay.origin = finalGatherHit.position + finalGatherHit.normal * RAYOFFSET;
+                                causticRay.direction = refractRay(finalGatherRay.direction, finalGatherHit.normal);
+
+                                Hit causticHit = checkSceneCollision(scene, causticRay, finalGatherHit.sceneIndex, 0);
+
+                                if (causticHit.sceneIndex != -1){
+
+                                    //hit an object so compute its color
+
+                                    Item causticIt = sceneItemReference(causticHit.sceneIndex, scene);
+
+                                    float causticIllum = dot(causticHit.normal, normalize(lightPos - causticHit.position));
+                                    if (causticIllum < 0.0) causticIllum = 0.0;
+                                    otherCol = mix(causticIt.material.ambient, causticIt.material.diffuse, causticIllum);
+
+                                }
+                                else{
+
+                                    vec2 uv_tex = textureMapSphere(causticRay.direction);
+                                    otherCol = texture2D(iChannel0, uv_tex);
+                                }
+
+
+                            }
 
                             finalGatherColorBleed += otherCol * gatherWeight;
                         }
@@ -401,8 +443,6 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                         //choose black for environment as well
                     }
                     else{
-
-                        vec2 environmentUV;
 
                         vec2 uv_tex = textureMapSphere(finalGatherRay.direction);
                         vec4 environmentColor = texture2D(iChannel0, uv_tex);
@@ -424,38 +464,63 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
 
             //check for reflection color
 
-            if (it.material.reflectivity > 0.0){
-                //shoot reflection ray and retrieve the color of whatever gets hit
+            vec4 reflectionColor;
 
+            if (it.material.reflectivity > 0.0 || it.material.refractivity > 0.0) {
+                // Shoot first reflection ray
                 Ray reflectionRay;
                 reflectionRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
                 reflectionRay.direction = reflectRay(ray.direction, sceneHit.normal);
 
-                Hit reflectionHit = checkSceneCollision(scene, reflectionRay, sceneHit.sceneIndex);
+                Hit reflectionHit = checkSceneCollision(scene, reflectionRay, sceneHit.sceneIndex, 0);
 
-                vec4 reflectionColor;
-
-                if (reflectionHit.sceneIndex != -1 && reflectionHit.sceneIndex != sceneHit.sceneIndex){
-
-                    //hit an object so compute its color
-
+                if (reflectionHit.sceneIndex != -1) {
                     Item reflectIt = sceneItemReference(reflectionHit.sceneIndex, scene);
 
-                    float reflectIllum = dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position));
-                    if (reflectIllum < 0.0) reflectIllum = 0.0;
-                    reflectionColor = reflectIt.material.ambient * (1.0 - reflectIllum) + reflectIt.material.diffuse * reflectIllum;
+                    vec4 bounceColor;
 
-                }
-                else{
+                    if (reflectIt.material.reflectivity > 0.0 || reflectIt.material.refractivity > 0.0) {
+                        // Second bounce
+                        Ray secondReflectionRay;
+                        secondReflectionRay.origin = reflectionHit.position + reflectionHit.normal * RAYOFFSET;
+                        secondReflectionRay.direction = reflectRay(reflectionRay.direction, reflectionHit.normal);
 
+                        Hit secondHit = checkSceneCollision(scene, secondReflectionRay, reflectionHit.sceneIndex, 0);
+
+                        if (secondHit.sceneIndex != -1) {
+                            Item secondIt = sceneItemReference(secondHit.sceneIndex, scene);
+
+                            float illum2 = max(0.0, dot(secondHit.normal, normalize(lightPos - secondHit.position)));
+                            vec4 secondDirect = secondIt.material.ambient * (1.0 - illum2) + secondIt.material.diffuse * illum2;
+
+                            bounceColor = mix(secondDirect, secondDirect, secondIt.material.reflectivity); 
+                        } else {
+                            vec2 uv2 = textureMapSphere(secondReflectionRay.direction);
+                            vec4 sky = texture2D(iChannel0, uv2);
+                            bounceColor = mix(sky, sky, 1.0);
+                        }
+
+                        float illum1 = max(0.0, dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position)));
+                        vec4 direct1 = reflectIt.material.ambient * (1.0 - illum1) + reflectIt.material.diffuse * illum1;
+                        reflectionColor = mix(direct1, bounceColor, reflectIt.material.reflectivity);
+                    } else {
+                        // Only one bounce 
+                        float illum1 = max(0.0, dot(reflectionHit.normal, normalize(lightPos - reflectionHit.position)));
+                        reflectionColor = reflectIt.material.ambient * (1.0 - illum1) + reflectIt.material.diffuse * illum1;
+                    }
+                } else {
                     vec2 uv_tex = textureMapSphere(reflectionRay.direction);
                     reflectionColor = texture2D(iChannel0, uv_tex);
                 }
 
-                //mix reflecred color with the regular coloring depending on reflection ratio
+                // Mix final result with base shading
+                directLightingColor = mix(directLightingColor, reflectionColor, it.material.reflectivity);
 
-                directLightingColor = ((1.0 - it.material.reflectivity) * directLightingColor) + (it.material.reflectivity * reflectionColor);
+                if (it.material.reflectivity > 0.8){
 
+                    directLightingColor = it.material.ambient * (1.0 - directIllum) + directLightingColor * directIllum;
+                
+                }
             }
 
             if (it.material.refractivity > 0.0){
@@ -465,11 +530,11 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                 refractionRay.origin = sceneHit.position + sceneHit.normal * RAYOFFSET;
                 refractionRay.direction = refractRay(ray.direction, sceneHit.normal);
 
-                Hit refractionHit = checkSceneCollision(scene, refractionRay, sceneHit.sceneIndex);
+                Hit refractionHit = checkSceneCollision(scene, refractionRay, sceneHit.sceneIndex, 0);
 
                 vec4 refractionColor;
 
-                if (refractionHit.sceneIndex != -1 && refractionHit.sceneIndex != sceneHit.sceneIndex){
+                if (refractionHit.sceneIndex != -1){
 
                     //hit an object so compute its color
 
@@ -486,9 +551,13 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
                     refractionColor = texture2D(iChannel0, uv_tex);
                 }
 
-                //mix refracted color with the regular coloring depending on reflection ratio
+                //mix refracted color with the reflection coloring depending on fake fresnel
 
-                directLightingColor = ((1.0 - it.material.refractivity) * directLightingColor) + (it.material.refractivity * refractionColor);
+                float cosVal = dot(sceneHit.normal, -ray.direction);
+
+                float fresnel = clamp(fc.z * (1.0 - cosVal) * (1.0 - cosVal) + fc.y * 2.0 * cosVal * (1.0 - cosVal) + fc.x * cosVal * cosVal, 0.0, 1.0);
+
+                directLightingColor = ((1.0 - fresnel) * refractionColor) + (fresnel * reflectionColor);
 
             }
             
@@ -496,17 +565,16 @@ vec4 rayTrace(Ray ray, Item scene[NUMITEMS], vec3 lightPos, vec2 uv){
             finalGatherAmbientOcclusion = finalGatherAmbientOcclusion / weights;
             finalGatherEnvironment = finalGatherEnvironment / weights;
 
-            col = finalGatherColorBleed * 0.25 + directLightingColor * 0.6 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.1 + finalGatherEnvironment * 0.05;
+            col = finalGatherColorBleed * 0.4 + directLightingColor * 0.5 + finalGatherAmbientOcclusion * (it.material.ambient) * 0.10 + finalGatherEnvironment * 0.1;
 
-            //col = clamp(col, 0.0, 1.0);
+            col = clamp(col, 0.0, 1.0);
 
             col.a = 1.0;
-            //col = vec4(0.0, 1.0, 0.0, 1.0)
         }
 
         //check shadow computation since ambient looks weird in the shadows at times
             
-        col = (1.0 - smoothShadowFactor) * it.material.ambient + smoothShadowFactor * col;
+        col = mix(it.material.ambient, col, lightPercent);
 
     }
     else{
@@ -550,13 +618,11 @@ void main() {
     sphere0.material.reflectivity = 0.0;
     sphere0.material.reflectivity = 0.0;
 
-    sphere0.position = vec3(iMouse.x, iMouse.y, -mint0 / 6.0); //set sphere position
+    sphere0.position = vec3(iMouse.x, 0.0, -mint0 / 6.0); //set sphere position
     sphere0.rotation = (vec3(0, 0, 0));
     sphere0.scale = iResolution.y/1.50;  //set sphere radius
+    sphere0.scaleSquared = sphere0.scale * sphere0.scale;
     
-    
-    sphere0.property = 0; //basic diffuse
-
     //add the sphere to the scene list
     scene[0] = sphere0;
 
@@ -568,7 +634,6 @@ void main() {
     sphere1.material.diffuse = vec4(255.0/255.0, 255.0/255.0,255.0/255.0,1.0);
     sphere1.material.reflectivity = 0.9;
     sphere1.position = vec3( 1500.0, 600.0 + 350.0 * sin(time / 500.0), -mint0 / 4.5);
-    sphere1.property = 1;
 
     scene[1] = sphere1;
 
@@ -578,9 +643,10 @@ void main() {
 
     sphere2 = sphere0;
     sphere2.material.diffuse = vec4(255.0/255.0, 255.0/255.0,0.0/255.0,1.0);
-    sphere2.position = vec3(1000.0, 35.0, -mint0 / 3.0);  
-    sphere2.property = 1;
+    //sphere2.position = vec3(1000.0, 35.0, -mint0 / 3.0);
+    sphere2.position = vec3(1000.0, 25.0 + 200.0 * abs(cos(time / 1000.0)), -mint0 / 3.0);  
     sphere2.scale = sphere0.scale * 0.5;  // make it smaller;
+    sphere2.scaleSquared = sphere2.scale * sphere2.scale;
 
     scene[2] = sphere2;
 
@@ -589,11 +655,11 @@ void main() {
     Item sphere3;
 
     sphere3 = sphere0;
-    sphere3.material.diffuse = vec4(255.0/255.0, 0.0/255.0,0.0/255.0,1.0);
-    sphere3.position = vec3(0.0, 50.0 + 500.0 * cos(time / 1300.0), -mint0 / 10.0);  
-    sphere3.property = 1;
+    sphere3.material.diffuse = vec4(255.0/255.0, 255.0/255.0,255.0/255.0,1.0);
+    sphere3.position = vec3(0.0, 200.0 + 500.0 * cos(time / 1300.0), -mint0 / 10.0);  
     sphere3.scale = sphere0.scale * 0.5;  // make it smaller;
-    sphere3.material.reflectivity = 0.0;
+    sphere3.scaleSquared = sphere3.scale * sphere3.scale;
+    sphere3.material.reflectivity = 1.0;
     sphere3.material.refractivity = 1.0;
 
     scene[3] = sphere3;
@@ -616,26 +682,43 @@ void main() {
     plane0.position = P_PL; //set plane position
     plane0.rotation = (vec3(0, 0, 0));
     plane0.scale = iResolution.y/1.50;  //set plane radius
+    plane0.scaleSquared = plane0.scale * plane0.scale;
     
-    plane0.property = 0; //basic diffuse
-
     //add the sphere to the scene list
     scene[4] = plane0;
+
+    
+    Item sphere4;
+
+    sphere4 = sphere0;
+    sphere4.material.diffuse = vec4(245.8/255.0,160.0/255.0,210.0/255.0,1.0);
+    sphere4.position = vec3(1800.0, 35.0, -mint0 / 10.0);  
+    sphere4.scale = sphere0.scale * 0.7;  // make it smaller;
+    sphere4.scaleSquared = sphere4.scale * sphere4.scale;
+
+    scene[5] = sphere4;
 
     float s0 = iResolution.x;
     float s1 = iResolution.x;
 
     //figure out camera position, pixel position, and light position
 
-    float cameraRadius = iResolution.x * 2.2; 
-    float cameraHeight = iResolution.y / 2.0; 
-    float cameraSpeed = 0.3; 
+    float cameraRadius = iResolution.x * 2.2;
+    float cameraHeight = iResolution.y / 2.0;
+    float cameraSpeed = 0.5;
 
-    vec3 cameraPos = vec3(
-        iResolution.x / 2.0 + cameraRadius * cos(time * cameraSpeed / 1000.0), 
-        cameraHeight,
-        -mint0 / 5.0 + cameraRadius * sin(time * cameraSpeed / 1000.0)
-    );
+    // Angle setup
+    float baseAngle = radians(190.0);     
+    float sweep = radians(50.0);        
+    float angle = baseAngle + sin(time * cameraSpeed / 1000.0) * sweep;
+
+    // Define camera center point to look at
+    vec3 center = vec3(iResolution.x / 2.0, cameraHeight, -mint0 / 5.0);
+
+    // Offset the camera around the center using angle
+    vec3 offset = vec3(sin(angle), 0.0, -cos(angle)) * cameraRadius;
+    vec3 cameraPos = center + offset;
+
 
     vec3 lookAt = vec3(iResolution.x / 2.0, 0.3, -mint0 / 5.0);
 
@@ -708,3 +791,257 @@ void main() {
    
     gl_FragColor = vec4(finalCol);    // Output to screen                                                    
 }
+`
+
+var canv;
+var glContext;  //Loads WebGL context 
+var glProgram;
+
+var mousePos;
+var iResolutionAttribute;
+var keyPressed = 0;
+//Light Interaction: Calculates light direction from iMouse, derives surface normals from texture, and determines light intensity for reflection and refraction.
+var iMouseAttribute;
+var iKeyAttribute;
+var iTimeAttribute;
+
+var renderStyle = 0;
+var renderStyleAttribute;
+
+async function main() {
+    //set up the renderings
+
+    canv = document.querySelector("#renderCanvas");
+
+    glContext = canv.getContext("webgl");
+
+    //check if context was sucessfully retrieved
+
+    if (glContext == null){
+        print("ERROR RETRIEVING CONTEXT");
+        return;
+    }
+
+    //setup webgl program
+
+    glProgram = glContext.createProgram();
+
+    //set shaders
+
+    //"./Assets/Shaders/refraction.glsl"
+
+    var vertexShader = glContext.createShader(glContext.VERTEX_SHADER);
+    var fragmentShader = glContext.createShader(glContext.FRAGMENT_SHADER);
+    
+    console.log("Fragment Shader Source:", fragmentShaderCode);  
+
+    glContext.shaderSource(vertexShader, vertexShaderCode);
+    glContext.shaderSource(fragmentShader, fragmentShaderCode);
+
+    glContext.compileShader(vertexShader);
+    glContext.compileShader(fragmentShader);
+
+    var success = glContext.getShaderParameter(fragmentShader, glContext.COMPILE_STATUS);
+
+    console.log("Compilation status: ", success);
+
+    if (!success){
+        throw ("Issue compiling:" + glContext.getShaderInfoLog(fragmentShader));
+    }
+
+    //attach shaders
+
+    glContext.attachShader(glProgram, vertexShader);
+    glContext.attachShader(glProgram, fragmentShader);
+
+    //finally the program can be linked
+
+    glContext.linkProgram(glProgram);
+
+    success = glContext.getProgramParameter(glProgram, glContext.LINK_STATUS);
+
+    //check if linking was successful
+
+    console.log("Linking status: ", success);
+
+    if (!success){
+        throw ("program failed to link:" + glContext.getProgramInfoLog(glProgram));
+    }
+
+    glContext.useProgram(glProgram);
+
+    //prevent textures from being upside down!
+    //Loads four images as textures and binds them to the WebGL context.
+    //glContext.pixelStorei(glContext.UNPACK_FLIP_Y_WEBGL, true);
+
+    const texturePaths = [
+        'Assets/Images/skies.jpg',                              
+    ];
+
+    const textures = await Promise.all(texturePaths.map(textureLoader));
+
+    for (var i = 0; i < textures.length; i++) {
+        glContext.activeTexture(glContext.TEXTURE0 + i);
+        glContext.bindTexture(glContext.TEXTURE_2D, textures[i]);
+    }
+
+    //set texture attributes
+
+    const iChannel0Loc = glContext.getUniformLocation(glProgram, "iChannel0");
+    glContext.uniform1i(iChannel0Loc, 0);
+
+    //const iChannel1Loc = glContext.getUniformLocation(glProgram, "iChannel1");
+    //glContext.uniform1i(iChannel1Loc, 1);
+
+    //set up rectangle to render with
+
+    const verts = new Float32Array([
+        -1, -1,   
+        1, -1,   
+        -1,  1,
+
+        -1,  1,   
+        1, -1,    
+        1,  1
+    ]);
+
+    //create and bind vertex buffer using the above points
+
+    const vertexBuffer = glContext.createBuffer();
+    glContext.bindBuffer(glContext.ARRAY_BUFFER, vertexBuffer);
+    glContext.bufferData(glContext.ARRAY_BUFFER, verts, glContext.STATIC_DRAW);
+
+    //assign attribute for position in the shader
+
+    const posAttributeLoc = glContext.getAttribLocation(glProgram, "pos");
+    glContext.enableVertexAttribArray(posAttributeLoc);
+    glContext.vertexAttribPointer(posAttributeLoc, 2, glContext.FLOAT, false, 0, 0);
+
+    //add mouse and iresolution attributes for shader
+
+    iMouseAttribute = glContext.getUniformLocation(glProgram, 'iMouse');
+    iResolutionAttribute = glContext.getUniformLocation(glProgram, 'iResolution');
+    iTimeAttribute = glContext.getUniformLocation(glProgram, 'time');
+    renderStyleAttribute = glContext.getUniformLocation(glProgram, 'renderStyle');
+
+    //set up mouse and its event listener
+
+    mousePos = { x: 0, y: 0 };
+
+    canv.addEventListener('mousemove', (event) => {
+
+        //on mouse movement event move the mouse position
+
+        const rect = canv.getBoundingClientRect();
+
+        const xCanvScale = canv.width / rect.width;
+        const yCanvScale = canv.height / rect.height;
+
+        mousePos.x = (event.clientX - rect.left) * xCanvScale;
+        mousePos.y = canv.height - (event.clientY - rect.top) * yCanvScale;
+
+    });
+
+    document.addEventListener('keydown', (event) => {
+
+        const key = event.key;
+
+        //up key
+        //set keypressed to 1 in order to change render mode
+        if (key == "ArrowUp"){
+            keyPressed = 1;
+        }
+
+    });
+
+    document.addEventListener('keyup', (event) => {
+
+        const key = event.key;
+
+        //up key
+        //set keypressed to 0 in order to go back to normal
+        if (key == "ArrowUp"){
+            keyPressed = 0;
+        }
+
+    });
+    
+    render();
+}
+
+async function textureLoader(url) {
+
+    return new Promise((resolve) => {
+
+        const texture = glContext.createTexture();
+        const image = new Image();
+
+        image.onload = () => {
+
+            glContext.bindTexture(glContext.TEXTURE_2D, texture);
+
+            glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGBA, glContext.RGBA, glContext.UNSIGNED_BYTE, image);
+
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.LINEAR);
+            
+            resolve(texture);
+        };
+
+        image.src = url;
+    });
+}
+
+let start = 0.0;
+
+let oldTime = 0.0;
+
+const fpsLabel = document.querySelector("#fps");
+
+function render(curTime){
+
+    //compute the current fps and display it on the page in order to be able to understand how the program is currently performing
+
+    curTime *= 0.001;
+    const timeChange = curTime - oldTime;
+
+    oldTime = curTime;
+
+    //the fps was changing so quickly that it was hard to read so I made it so that it only updates after certain periods of time
+    if (curTime - start > 0.1){
+
+        start = curTime;
+
+        const fps = 1.0 / timeChange;
+
+        fpsLabel.textContent = Math.round(fps);
+    }
+
+    glContext.clearColor(0.0, 0.0, 0.0, 1.0); //set background color to black as the default
+
+    glContext.clear(glContext.COLOR_BUFFER_BIT);
+
+    //before drawing the new frame update mouse and resolution values in the shader
+
+    glContext.uniform4f(iMouseAttribute, mousePos.x, mousePos.y, 0.0, 0.0);
+    glContext.uniform3f(iResolutionAttribute, canv.width, canv.height, 1.0);
+    glContext.uniform1f(iTimeAttribute, performance.now());
+    glContext.uniform1i(renderStyleAttribute, renderStyle);
+
+    //draw the scene
+    glContext.drawArrays(glContext.TRIANGLES, 0, 6);
+    requestAnimationFrame(render);
+}
+
+main();
+
+async function setRenderStyle(style){
+    if (style == "0"){
+        renderStyle = 0;
+    }
+    else if (style == "1"){
+        renderStyle = 1;
+    }
+}
+window.setRenderStyle = setRenderStyle;

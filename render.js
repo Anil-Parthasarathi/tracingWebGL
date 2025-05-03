@@ -9,13 +9,13 @@ const vertexShaderCode = `
 
 const fragmentShaderCode = `
 
-#define NUMITEMS 5
-#define NOL0 8
-#define NOL1 8
-#define SAMPLESX 1
-#define SAMPLESY 1
-#define SHADOWSAMPLESX 12
-#define SHADOWSAMPLESZ 12
+#define NUMITEMS 6
+#define NOL0 15
+#define NOL1 15
+#define SAMPLESX 2
+#define SAMPLESY 2
+#define SHADOWSAMPLESX 25
+#define SHADOWSAMPLESZ 25
 #define LIGHTSIZE 1000
 
 precision mediump float;
@@ -267,9 +267,9 @@ Item sceneItemReference(int sceneIndex, Item scene[NUMITEMS]){
     else if (sceneIndex == 4){
         it = scene[4];
     }
-    /*else if (sceneIndex == 5){
+    else if (sceneIndex == 5){
         it = scene[5];
-    }*/
+    }
 
 
     return it;
@@ -687,16 +687,16 @@ void main() {
     //add the sphere to the scene list
     scene[4] = plane0;
 
-    /*
+    
     Item sphere4;
 
     sphere4 = sphere0;
-    sphere4.material.diffuse = vec4(255.0/255.0, 0.0/255.0,255.0/255.0,1.0);
+    sphere4.material.diffuse = vec4(245.8/255.0,160.0/255.0,210.0/255.0,1.0);
     sphere4.position = vec3(1800.0, 35.0, -mint0 / 10.0);  
     sphere4.scale = sphere0.scale * 0.7;  // make it smaller;
     sphere4.scaleSquared = sphere4.scale * sphere4.scale;
 
-    scene[5] = sphere4;*/
+    scene[5] = sphere4;
 
     float s0 = iResolution.x;
     float s1 = iResolution.x;
