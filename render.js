@@ -23,7 +23,6 @@ precision mediump float;
 uniform vec3 iResolution;
 uniform vec4 iMouse;
 uniform float time;  
-uniform int renderStyle;
 uniform sampler2D iChannel0;     
 uniform int keyPress;
 
@@ -769,9 +768,6 @@ var iMouseAttribute;
 var iKeyAttribute;
 var iTimeAttribute;
 
-var renderStyle = 0;
-var renderStyleAttribute;
-
 async function main() {
     //set up the renderings
 
@@ -886,7 +882,6 @@ async function main() {
     iMouseAttribute = glContext.getUniformLocation(glProgram, 'iMouse');
     iResolutionAttribute = glContext.getUniformLocation(glProgram, 'iResolution');
     iTimeAttribute = glContext.getUniformLocation(glProgram, 'time');
-    renderStyleAttribute = glContext.getUniformLocation(glProgram, 'renderStyle');
 
     //set up mouse and its event listener
 
@@ -991,7 +986,6 @@ function render(curTime){
     glContext.uniform4f(iMouseAttribute, mousePos.x, mousePos.y, 0.0, 0.0);
     glContext.uniform3f(iResolutionAttribute, canv.width, canv.height, 1.0);
     glContext.uniform1f(iTimeAttribute, performance.now());
-    glContext.uniform1i(renderStyleAttribute, renderStyle);
 
     //draw the scene
     glContext.drawArrays(glContext.TRIANGLES, 0, 6);
@@ -999,13 +993,3 @@ function render(curTime){
 }
 
 main();
-
-async function setRenderStyle(style){
-    if (style == "0"){
-        renderStyle = 0;
-    }
-    else if (style == "1"){
-        renderStyle = 1;
-    }
-}
-window.setRenderStyle = setRenderStyle;

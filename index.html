@@ -8,38 +8,15 @@
 
   <body>
     <h1>
-        Image Synthesis Project 3: Real Time Ray Tracing With Final Gathering 
+        Real Time Ray Tracing With Final Gathering 
     </h1>
-
-    <div class="controls">
-      <div class = "radioButtons">
-        <label>
-          <input
-            type="radio"
-            name="renderStyle"
-            value="0"
-            onclick="setRenderStyle('0')"
-            checked
-          />
-          Default
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="renderStyle"
-            value="4"
-            onclick="setRenderStyle('4')"
-          />
-          Rotation
-        </label>
-      </div>
-
-      <p></p>
 
     <div>Current FPS: <span id="fps"></span></div>
 
+    <p></p>
+
     <canvas id="renderCanvas" width="1000" height="720"></canvas>
 
-    <p>Please move your mouse across the screen to move the blue sphere!</p>
+    <p>Please move your mouse across the screen to shift the blue sphere left and right!</p>
   </body>
 </html>
