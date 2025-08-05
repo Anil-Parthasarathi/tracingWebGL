@@ -778,7 +778,7 @@ async function main() {
     //check if context was sucessfully retrieved
 
     if (glContext == null){
-        print("ERROR RETRIEVING CONTEXT");
+        console.log("ERROR RETRIEVING CONTEXT");
         return;
     }
 
@@ -993,3 +993,4 @@ function render(curTime){
 }
 
 main();
+
